@@ -118,7 +118,7 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
             logger.exception("Unhandled exception in _loop()")
             raise
         finally:
-            _call_handler(_on_closed, handle)
+            await _call_handler(_on_closed, handle)
             _state = CLOSED
     
     def start():
