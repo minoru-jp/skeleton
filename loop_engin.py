@@ -83,9 +83,10 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
 
     _loop_task = None
 
+    _common_context = None
 
     def _default_handler_caller(handler, *args, **kwargs):
-        return handler()
+        return handler(_common_context) #Note:共通コンテキスト以外の引数について決まっていない。
     
     _handler_caller = _default_handler_caller
 
@@ -160,70 +161,80 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
 
 
     # --- explicit handler setters ---
+
+    def _check_state_is_load_for_setter(setter):
+        _check_state(LOAD, error_msg=f"{setter.__name__} only allowed in LOAD")
+
     def set_on_start(fn):
         nonlocal _on_start
-        _check_state(LOAD, error_msg="set_on_start only allowed in LOAD")
+        _check_state_is_load_for_setter(set_on_start)
         _on_start = fn
 
     def set_on_end(fn):
         nonlocal _on_end
-        _check_state(LOAD, error_msg="set_on_end only allowed in LOAD")
+        _check_state_is_load_for_setter(set_on_end)
         _on_end = fn
-    
+
     def set_on_stop(fn):
         nonlocal _on_stop
-        _check_state(LOAD, error_msg="set_on_stop only allowed in LOAD")
+        _check_state_is_load_for_setter(set_on_stop)
         _on_stop = fn
-    
+
     def set_on_closed(fn):
         nonlocal _on_closed
-        _check_state(LOAD, error_msg="set_on_finally only allowed in LOAD")
+        _check_state_is_load_for_setter(set_on_closed)
         _on_closed = fn
 
     def set_on_tick_before(fn):
         nonlocal _on_tick_before
-        _check_state(LOAD, error_msg="set_on_tick_before only allowed in LOAD")
+        _check_state_is_load_for_setter(set_on_tick_before)
         _on_tick_before = fn
 
     def set_on_tick(fn):
         nonlocal _on_tick
-        _check_state(LOAD, error_msg="set_on_tick only allowed in LOAD")
+        _check_state_is_load_for_setter(set_on_tick)
         _on_tick = fn
 
     def set_on_tick_after(fn):
         nonlocal _on_tick_after
-        _check_state(LOAD, error_msg="set_on_tick_after only allowed in LOAD")
+        _check_state_is_load_for_setter(set_on_tick_after)
         _on_tick_after = fn
 
     def set_on_interval(fn):
         nonlocal _on_interval
-        _check_state(LOAD, error_msg="set_on_interval only allowed in LOAD")
+        _check_state_is_load_for_setter(set_on_interval)
         _on_interval = fn
 
     def set_next(fn):
         nonlocal _next
-        _check_state(LOAD, error_msg="set_next only allowed in LOAD")
+        _check_state_is_load_for_setter(set_next)
         _next = fn
-    
+
     def set_on_pause(fn):
         nonlocal _on_pause
-        _check_state(LOAD, error_msg="set_on_pause only allowed in LOAD")
+        _check_state_is_load_for_setter(set_on_pause)
         _on_pause = fn
 
     def set_on_resume(fn):
         nonlocal _on_resume
-        _check_state(LOAD, error_msg="set_on_resume only allowed in LOAD")
+        _check_state_is_load_for_setter(set_on_resume)
         _on_resume = fn
 
     def set_on_exception(fn):
         nonlocal _on_exception
-        _check_state(LOAD, error_msg="set_on_exception only allowed in LOAD")
+        _check_state_is_load_for_setter(set_on_exception)
         _on_exception = fn
-    
+
     def set_handler_caller(fn):
         nonlocal _handler_caller
-        _check_state(LOAD, error_msg="set_handler_caller only allowed in LOAD")
+        _check_state_is_load_for_setter(set_handler_caller)
         _handler_caller = fn
+
+    def set_common_context(obj):
+        nonlocal _common_context
+        _check_state_is_load_for_setter(set_common_context)
+        _common_context = obj
+
 
     # --- bind to handle ---
     handle.set_on_start = set_on_start
@@ -238,6 +249,9 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
     handle.set_on_exception = set_on_exception
     handle.set_on_interval = set_on_interval
     handle.set_next = set_next
+
+    handle.set_handler_caller = set_handler_caller
+    handle.set_common_context = set_common_context
 
     handle.start = start
     handle.stop = stop
