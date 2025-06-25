@@ -3,6 +3,23 @@ import inspect
 from types import SimpleNamespace
 import logging
 
+# def _atomic_state_change(new_state, new_mode=None):
+#     """状態変更を原子的に行う"""
+#     old_state = _state
+#     old_mode = _mode
+#     try:
+#         _state = new_state
+#         if new_mode is not None:
+#             _mode = new_mode
+#         return old_state, old_mode
+#     except Exception:
+#         _state = old_state
+#         _mode = old_mode
+#         raise
+
+#CONSIDER: ループの操作子でハンドラを呼ぶのはどうなのか？
+#ただ、ループ内で呼ぼうと思っても、フックできる場所はない
+
 def make_loop_engine_handle(role: str, note: str, logger = None):
     if not logger:
         logger = logging.getLogger(__name__)
@@ -67,9 +84,6 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
     handle.HandleClosed = HandleClosed
 
     # --- internal state ---
-    _SUCCESS = True
-    _FAILED = False
-
     _on_start = None
     _on_end = None
     _on_stop = None
@@ -92,8 +106,15 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
     
     _handler_caller = _default_handler_caller
 
+
+    #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    # すべての_call_handlerの呼び出しでhandleを
+    # 渡しているのはトマソンです。
+    #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+
     # --- handler call helper ---
-    async def _call_handler(handler, obj):
+    async def _call_handler(handler, obj):#<-このobjがトマソン
         if not handler:
             return
         try:
@@ -132,35 +153,39 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
             await _call_handler(_on_stop, handle)
         except Exception:
             logger.exception("Unhandled exception in _loop()")
+            await _call_handler(_on_exception, handle)#Note:例外に対する脆弱性
             raise
         finally:
-            await _call_handler(_on_closed, handle)
+            await _call_handler(_on_closed, handle)#Note:例外に対する脆弱性
             _state = CLOSED
     
     def start():
         nonlocal _state, _loop_task
         _check_state(LOAD, error_msg="start() must be called in LOAD state")
         _state = ACTIVE
+        _running.set()
         _loop_task = asyncio.create_task(_loop())
 
     def stop():
         _check_state(ACTIVE, error_msg="stop() must be called in ACTIVE state")
-        _loop_task.cancel()
+        if _loop_task and not _loop_task.done():
+            _loop_task.cancel()
     
-    def pause():
+    async def pause():
         nonlocal _mode
         _check_state(ACTIVE, error_msg="pause() only allowed in ACTIVE")
         _check_mode(RUNNING, error_msg="pause() only allowed from RUNNING")
         _mode = PAUSE
         _running.clear()
+        await _call_handler(_on_pause, handle)#Note:例外処理がない
 
-    def resume():
+    async def resume():
         nonlocal _mode
         _check_state(ACTIVE, error_msg="resume() only allowed in ACTIVE")
         _check_mode(PAUSE, error_msg="resume() only allowed from PAUSE")
         _mode = RUNNING
         _running.set()
-
+        await _call_handler(_on_resume, handle)#Note:例外処理がない
 
     # --- explicit handler setters ---
 
