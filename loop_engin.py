@@ -16,6 +16,7 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
 
     _state = LOAD #assign only main state(LOAD, ACTIVE, CLOSED)
     _mode = RUNNING #assign only sub state(RUNNING, PAUSE)
+    _running = asyncio.Event()
 
     class HandleStateError(Exception):
         pass
@@ -107,6 +108,7 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
                 if await _call_handler(_on_tick_after, handle) == _FAILED:
                     _on_tick_after = None
                 await _on_interval()
+                await _running.wait()
             if await _call_handler(_on_end, handle) == _FAILED:
                 _on_end = None
         except asyncio.CancelledError as e:
@@ -134,12 +136,15 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
         _check_state(ACTIVE, error_msg="pause() only allowed in ACTIVE")
         _check_mode(RUNNING, error_msg="pause() only allowed from RUNNING")
         _mode = PAUSE
+        _running.clear()
 
     def resume():
         nonlocal _mode
         _check_state(ACTIVE, error_msg="resume() only allowed in ACTIVE")
         _check_mode(PAUSE, error_msg="resume() only allowed from PAUSE")
         _mode = RUNNING
+        _running.set()
+
 
     # --- explicit handler setters ---
     def set_on_start(fn):
