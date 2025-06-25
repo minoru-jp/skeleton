@@ -71,10 +71,13 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
     _on_start = None
     _on_end = None
     _on_stop = None
+    _on_pause = None
+    _on_resume = None
     _on_closed = None
     _on_tick_before = None
     _on_tick = None
     _on_tick_after = None
+    _on_exception = None
     _on_interval = lambda: None
     _next = lambda: True
 
@@ -191,15 +194,33 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
         nonlocal _next
         _check_state(LOAD, error_msg="set_next only allowed in LOAD")
         _next = fn
+    
+    def set_on_pause(fn):
+        nonlocal _on_pause
+        _check_state(LOAD, error_msg="set_on_pause only allowed in LOAD")
+        _on_pause = fn
+
+    def set_on_resume(fn):
+        nonlocal _on_resume
+        _check_state(LOAD, error_msg="set_on_resume only allowed in LOAD")
+        _on_resume = fn
+
+    def set_on_exception(fn):
+        nonlocal _on_exception
+        _check_state(LOAD, error_msg="set_on_exception only allowed in LOAD")
+        _on_exception = fn
 
     # --- bind to handle ---
     handle.set_on_start = set_on_start
     handle.set_on_end = set_on_end
     handle.set_on_stop = set_on_stop
+    handle.set_on_pause = set_on_pause
+    handle.set_on_resume = set_on_resume
     handle.set_on_closed = set_on_closed
     handle.set_on_tick_before = set_on_tick_before
     handle.set_on_tick = set_on_tick
     handle.set_on_tick_after = set_on_tick_after
+    handle.set_on_exception = set_on_exception
     handle.set_on_interval = set_on_interval
     handle.set_next = set_next
 
