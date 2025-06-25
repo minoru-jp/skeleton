@@ -205,6 +205,8 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
 
     handle.start = start
     handle.stop = stop
+    handle.pause = pause
+    handle.resume = resume
 
     handle.meta = _meta
 
