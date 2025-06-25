@@ -27,9 +27,10 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
     LOAD = 0
     ACTIVE = 1
     CLOSED = 2
-    RUNNING = 10 #sub-state of ACTIVE commute to PAUSE
-    PAUSE = 11 #sub-state of ACTIVE commute to RUNNING
-    MEANS_CLOSED = (CLOSED,)
+    UNCLEAN = 99 # Final state used instead of CLOSED if _on_closed() fails
+    RUNNING = 10 # sub-state of ACTIVE commute to PAUSE
+    PAUSE = 11 # sub-state of ACTIVE commute to RUNNING
+    MEANS_CLOSED = (CLOSED, UNCLEAN)
 
     _state = LOAD #assign only main state(LOAD, ACTIVE, CLOSED)
     _mode = RUNNING #assign only sub state(RUNNING, PAUSE)
@@ -93,46 +94,38 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
     _on_tick_before = None
     _on_tick = None
     _on_tick_after = None
-    _on_exception = None
+    _on_exception = None # sync only
     _on_interval = lambda: None
+    _on_handler_exception = None #sync only
     _next = lambda: True
 
     _loop_task = None
 
     _common_context = None
 
-    def _default_handler_caller(handler, *args, **kwargs):
+    async def _default_handler_caller(handler, context, *args, **kwargs):
         return handler(_common_context) #Note:共通コンテキスト以外の引数について決まっていない。
     
     _handler_caller = _default_handler_caller
 
-
-    #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    # すべての_call_handlerの呼び出しでhandleを
-    # 渡しているのはトマソンです。
-    #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
-
     # --- handler call helper ---
-    async def _call_handler(handler, obj):#<-このobjがトマソン
+    async def _call_normal_path_handler(handler):
         if not handler:
             return
         try:
-            result = _handler_caller(handler, ...) #現時点でコーラーに渡す情報はない
+            result = _handler_caller(handler, _common_context)
             if inspect.isawaitable(result):
                 await result
         except Exception as e:
-            #Note:_handler_callerを導入したことにより、ここには
-            #handlerが投げた例外ではない例外も補足されていることに注意
-            #CONSIDER: _handler_callerはハンドラからの例外を伝播させないという
-            #仕様を定めるか？いや、handler_callerから上に上ってきた例外は無条件で
-            #再スローされるという仕様の方がいい。か
-
-            #Note: ここで、例えば、_on_handler_excpeptionのような
-            #ハンドラーに例外を投げたhandlerを渡して、回復処理ができるか？
-            #回復処理ができれば（回復不能、またはその必要なしという判断も含めて）
-            #例外を握りつぶす実装を入れることも視野に入る
-            logger.exception("handler_caller error")
+            logger.exception("_handler_caller failed")
+            if _on_handler_exception:
+                try:
+                    #再入を防ぐために直接呼び出す(引数は固定)
+                    _on_handler_exception(handler)
+                except Exception as handle_exception_err:
+                    logger.exception(
+                        "Unknown exception in _handler_caller()")
+                    raise handle_exception_err from e
             raise
 
     async def _loop():
@@ -140,26 +133,46 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
         _check_state(LOAD, error_msg="loop() must be called in LOAD state")
         nonlocal _on_start, _on_end, _on_tick_before, _on_tick_after, _on_tick
         try:
-            await _call_handler(_on_start, handle)
+            await _call_normal_path_handler(_on_start)
             while _next():
-                await _call_handler(_on_tick_before, handle)
-                await _call_handler(_on_tick, handle)
-                await _call_handler(_on_tick_after, handle)
+                await _call_normal_path_handler(_on_tick_before)
+                await _call_normal_path_handler(_on_tick)
+                await _call_normal_path_handler(_on_tick_after)
                 await _on_interval()
                 await _running.wait()
-            await _call_handler(_on_end, handle)
+            await _call_normal_path_handler(_on_end)
         except asyncio.CancelledError as e:
             logger.info("Loop was cancelled by stop()")
-            await _call_handler(_on_stop, handle)
-        except Exception:
-            logger.exception("Unhandled exception in _loop()")
-            await _call_handler(_on_exception, handle)#Note:例外に対する脆弱性
+            try:
+                await _call_normal_path_handler(_on_stop)
+            except Exception as expt_at_stop:
+                logger.debug("on_stop failed")
+                raise expt_at_stop from e
+        except Exception as e:
+            logger.exception("Unknown exception in _loop()")
+            try:
+                if _on_exception:
+                    _on_exception(e)
+            except Exception as expt_at_handle_exception:
+                raise expt_at_handle_exception from e
             raise
         finally:
-            await _call_handler(_on_closed, handle)#Note:例外に対する脆弱性
-            _state = CLOSED
+            try:
+                await _call_normal_path_handler(_on_closed)
+            except Exception as expt_on_closed:
+                logger.exception(
+                    "Unknown exception in _on_closed handler")
+                raise expt_on_closed
+            finally:
+                _state = CLOSED
+
     
     def start():
+        '''
+        Launches the main loop as a background task.
+        This function is asynchronous, but does not wait for the loop to finish.
+        The loop runs independently in the background.
+        '''
         nonlocal _state, _loop_task
         _check_state(LOAD, error_msg="start() must be called in LOAD state")
         _state = ACTIVE
@@ -177,7 +190,7 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
         _check_mode(RUNNING, error_msg="pause() only allowed from RUNNING")
         _mode = PAUSE
         _running.clear()
-        await _call_handler(_on_pause, handle)#Note:例外処理がない
+        await _call_handler(_on_pause)#Note:例外処理がない
 
     async def resume():
         nonlocal _mode
@@ -185,7 +198,7 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
         _check_mode(PAUSE, error_msg="resume() only allowed from PAUSE")
         _mode = RUNNING
         _running.set()
-        await _call_handler(_on_resume, handle)#Note:例外処理がない
+        await _call_handler(_on_resume)#Note:例外処理がない
 
     # --- explicit handler setters ---
 
@@ -261,6 +274,11 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
         nonlocal _common_context
         _check_state_is_load_for_setter(set_common_context)
         _common_context = obj
+    
+    def set_on_handler_exception(fn):
+        nonlocal _on_handler_exception
+        _check_state_is_load_for_setter(set_on_handler_exception)
+        _on_handler_exception = fn
 
 
     # --- bind to handle ---
