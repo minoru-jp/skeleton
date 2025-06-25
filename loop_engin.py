@@ -36,8 +36,8 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
             return
         raise HandleStateError(f"{error_msg} (expected = {expected}, actual = {_mode})")
     
-    _meta_hms = SimpleNamespace()
-    def _handle_hms(**kwargs):
+
+    def handle(**kwargs):
         '''
         The handle functions as a container that provides the interface to the driver.
 
@@ -48,15 +48,17 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
         vars(_meta).update(kwargs)
         return handle
 
-    def _split_hss(*names):
+    def _split(*names):
         def new_handle():
             return id(handle)
         vars(new_handle).update({k: getattr(handle, k) for k in names})
         return new_handle
 
-    _meta = _meta_hms
-    handle = _handle_hms
-    handle._split = _split_hss
+    _meta = SimpleNamespace()
+
+    handle._split = _split
+    handle.meta = _meta
+
 
     handle.LOAD = LOAD
     handle.ACTIVE = ACTIVE
@@ -257,7 +259,5 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
     handle.stop = stop
     handle.pause = pause
     handle.resume = resume
-
-    handle.meta = _meta
 
     return handle
