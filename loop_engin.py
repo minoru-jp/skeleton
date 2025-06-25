@@ -86,34 +86,32 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
     # --- handler call helper ---
     async def _call_handler(handler, obj):
         if not handler:
-            return _SUCCESS
+            return
         try:
             result = handler(obj)
             if inspect.isawaitable(result):
                 await result
-        except Exception:
+        except Exception as e:
+            #Note: ここで、例えば、_on_handler_excpeptionのような
+            #ハンドラーに例外を投げたhandlerを渡して、回復処理ができるか？
+            #回復処理ができれば（回復不能、またはその必要なしという判断も含めて）
+            #例外を握りつぶす実装を入れることも視野に入る
             logger.exception("Handler error")
-            return _FAILED
-        return _SUCCESS
+            raise
 
     async def _loop():
         nonlocal _state
         _check_state(LOAD, error_msg="loop() must be called in LOAD state")
         nonlocal _on_start, _on_end, _on_tick_before, _on_tick_after, _on_tick
         try:
-            if await _call_handler(_on_start, handle) == _FAILED:
-                _on_start = None
+            await _call_handler(_on_start, handle)
             while _next():
-                if await _call_handler(_on_tick_before, handle) == _FAILED:
-                    _on_tick_before = None
-                if await _call_handler(_on_tick, handle) == _FAILED:
-                    _on_tick = None
-                if await _call_handler(_on_tick_after, handle) == _FAILED:
-                    _on_tick_after = None
+                await _call_handler(_on_tick_before, handle)
+                await _call_handler(_on_tick, handle)
+                await _call_handler(_on_tick_after, handle)
                 await _on_interval()
                 await _running.wait()
-            if await _call_handler(_on_end, handle) == _FAILED:
-                _on_end = None
+            await _call_handler(_on_end, handle)
         except asyncio.CancelledError as e:
             logger.info("Loop was cancelled by stop()")
             await _call_handler(_on_stop, handle)
