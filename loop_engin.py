@@ -83,20 +83,32 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
 
     _loop_task = None
 
+
+    def _default_handler_caller(handler, *args, **kwargs):
+        return handler()
+    
+    _handler_caller = _default_handler_caller
+
     # --- handler call helper ---
     async def _call_handler(handler, obj):
         if not handler:
             return
         try:
-            result = handler(obj)
+            result = _handler_caller(handler, ...) #現時点でコーラーに渡す情報はない
             if inspect.isawaitable(result):
                 await result
         except Exception as e:
+            #Note:_handler_callerを導入したことにより、ここには
+            #handlerが投げた例外ではない例外も補足されていることに注意
+            #CONSIDER: _handler_callerはハンドラからの例外を伝播させないという
+            #仕様を定めるか？いや、handler_callerから上に上ってきた例外は無条件で
+            #再スローされるという仕様の方がいい。か
+
             #Note: ここで、例えば、_on_handler_excpeptionのような
             #ハンドラーに例外を投げたhandlerを渡して、回復処理ができるか？
             #回復処理ができれば（回復不能、またはその必要なしという判断も含めて）
             #例外を握りつぶす実装を入れることも視野に入る
-            logger.exception("Handler error")
+            logger.exception("handler_caller error")
             raise
 
     async def _loop():
@@ -207,6 +219,11 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
         nonlocal _on_exception
         _check_state(LOAD, error_msg="set_on_exception only allowed in LOAD")
         _on_exception = fn
+    
+    def set_handler_caller(fn):
+        nonlocal _handler_caller
+        _check_state(LOAD, error_msg="set_handler_caller only allowed in LOAD")
+        _handler_caller = fn
 
     # --- bind to handle ---
     handle.set_on_start = set_on_start
