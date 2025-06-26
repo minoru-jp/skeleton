@@ -1,5 +1,6 @@
 import asyncio
 import inspect
+import time
 from types import SimpleNamespace
 import logging
 
@@ -43,7 +44,9 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
         raise HandleStateError(f"{error_msg} (expected = {expected}, actual = {_mode})")
 
     # --- handler call helper ---
-    async def _call_normal_path_handler(handler, loop_info):
+    async def _invoke_handler_auto(handler, loop_info):
+        loop_info.pending_pause = _pending_pause
+        loop_info.pending_resume = _pending_resume
         if not handler:
             return
         try:
@@ -52,47 +55,88 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
                 await result
         except Exception as e:
             logger.exception("_handler_caller failed")
-            if _on_handler_exception:
+            if _on_exception:
                 try:
                     #再入を防ぐために直接呼び出す(引数は固定)
-                    _on_handler_exception(handler)
+                    _on_exception(e, _common_context, loop_info)
                 except Exception as handle_exception_err:
                     logger.exception(
                         "Unknown exception in _handler_caller()")
                     raise handle_exception_err from e
             raise
     
+    def _invoke_handler_sync(handler, loop_info):
+        loop_info.pending_pause = _pending_pause
+        loop_info.pending_resume = _pending_resume
+        if not handler:
+            return
+        try:
+            return _handler_caller(handler, _common_context, loop_info)
+        except Exception as e:
+            logger.exception("_handler_caller failed")
+            if _on_exception:
+                try:
+                    #再入を防ぐために直接呼び出す(引数は固定)
+                    _on_exception(e, _common_context, loop_info)
+                except Exception as handle_exception_err:
+                    logger.exception(
+                        "Unknown exception in _handler_caller()")
+                    raise handle_exception_err from e
+            raise
+
+    
     async def _resolve_pause_resume(loop_info):
         nonlocal _mode
         if _pending_pause:
             _pending_pause = False
-            await _call_normal_path_handler(_on_pause, loop_info)
+            await _invoke_handler_auto(_on_pause, loop_info)
             _mode = PAUSE
             _running.clear()
         if _pending_resume:
             _pending_resume = False
             _mode = RUNNING
             _running.set()
-            await _call_normal_path_handler(_on_resume, loop_info)
+            await _invoke_handler_auto(_on_resume, loop_info)
 
     async def _loop():
         nonlocal _state
         _check_state(LOAD, error_msg="loop() must be called in LOAD state")
         info = SimpleNamespace()
+        info.RUNNING = RUNNING
+        info.PAUSE = PAUSE
+        info.role = role
+        info.note = note
+        info.start_time = 0.0
+        info.tick = 0
+        info.elapsed = 0.0
+        info.mode = _mode
+        info.pending_pause = _pending_pause # Update in handler invoker
+        info.pending_resume = _pending_resume # Update in handler invoker
+        
         try:
-            await _call_normal_path_handler(_on_start, info)
-            while _call_normal_path_handler(_next, info):
-                await _call_normal_path_handler(_on_tick_before, info)
-                await _call_normal_path_handler(_on_tick, info)
-                await _call_normal_path_handler(_on_tick_after, info)
-                await _call_normal_path_handler(_on_wait, info)
+            _start_time = time.monotonic()
+            info.start_time = _start_time
+            await _invoke_handler_auto(_on_start, info)
+            while True:
+                info.elapsed = time.monotonic() - _start_time
+                info.mode = _mode
+                if _next:
+                    if _invoke_handler_sync(_next, info):
+                        break
+                await _invoke_handler_auto(_on_tick_before, info)
+                await _invoke_handler_auto(_on_tick, info)
+                info.tick += 1
+                await _invoke_handler_auto(_on_tick_after, info)
+                await _invoke_handler_auto(_on_wait, info)
                 await _resolve_pause_resume(info)
                 await _running.wait()
-            await _call_normal_path_handler(_on_end, info)
+            await _invoke_handler_auto(_on_end, info)
         except asyncio.CancelledError as e:
+            #Note:タスクのリークがない場合に限ってこのログは成り立つ
+            #そうでない場合、必ずしもstop()が呼ばれているとは限らない
             logger.info("Loop was cancelled by stop()")
             try:
-                await _call_normal_path_handler(_on_stop, info)
+                await _invoke_handler_auto(_on_stop, info)
             except Exception as expt_at_stop:
                 logger.debug("on_stop failed")
                 raise expt_at_stop from e
@@ -106,7 +150,7 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
             raise
         finally:
             try:
-                await _call_normal_path_handler(_on_closed, info)
+                await _invoke_handler_auto(_on_closed, info)
             except Exception as expt_on_closed:
                 logger.exception(
                     "Unknown exception in _on_closed handler")
@@ -156,7 +200,6 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
     _on_tick_after = None 
     _on_exception = None # sync only!
     _on_wait = lambda: None
-    _on_handler_exception = None #sync only!
     _next = lambda: True # sync only!
     _common_context = None
 
@@ -237,10 +280,6 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
         _check_state_is_load_for_setter(set_common_context)
         _common_context = obj
     
-    def set_on_handler_exception(fn):
-        nonlocal _on_handler_exception
-        _check_state_is_load_for_setter(set_on_handler_exception)
-        _on_handler_exception = fn
 
 
     # --- bind to handle ---
