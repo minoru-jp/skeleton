@@ -370,31 +370,41 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("example")
 
 async def main():
-    mul = make_loop_engine_handle(role="multiplication", note="10万回", logger=logger)
-    div = make_loop_engine_handle(role="divide", note="10万回", logger = logger)
+    piyo = make_loop_engine_handle(role="add", note="10万回", logger=logger)
+    puyo = make_loop_engine_handle(role="string", note="10万回", logger = logger)
 
-    TIMES = 100000
+    TIMES = 10000000
 
-    def on_result(context, info):
+    def on_result_for_piyo(context, info):
         print("-------------------------------------------")
-        logger.info(info.role)
-        logger.info(info.elapsed)
+        logger.info("piyo")
+        logger.info(f"role: {info.role}")
+        logger.info(f"elapsed: {info.elapsed * 1000} ms")
+    
+    def on_result_for_puyo(context, info):
+        print("-------------------------------------------")
+        logger.info("puyo")
+        logger.info(f"role: {info.role}")
+        logger.info(f"elapsed: {info.elapsed * 1000} ms")
     
     should_stop = lambda c, i: not (i.tick < TIMES)
 
-    # ハンドラ登録
-    mul.set_on_tick(lambda c, i: 1 * 1)
-    mul.set_should_stop(should_stop) 
-    mul.set_on_result(on_result)
+    one = 1
 
-    div.set_on_tick(lambda c, i: 1 / 1)
-    div.set_should_stop(should_stop)
-    div.set_on_result(on_result)
+    # ハンドラ登録
+    piyo.set_on_tick(lambda c, i: one + 1)
+    piyo.set_should_stop(lambda c, i : not(i.tick < TIMES)) 
+    piyo.set_on_end(on_result_for_piyo)
+
+    puyo.set_on_tick(lambda c, i: f"role: {i.role}")
+    puyo.set_should_stop(lambda c, i : not(i.tick < TIMES))
+    puyo.set_on_end(on_result_for_puyo)
 
     # 起動
-    mul_coro = mul.ready()
-    div_coro = div.ready()
+    piyo_coro = piyo.ready()
+    puyo_coro = puyo.ready()
 
-    await asyncio.gather(mul_coro, div_coro)
+    await asyncio.gather(piyo_coro, puyo_coro)
+    print("end")
 
 asyncio.run(main())
