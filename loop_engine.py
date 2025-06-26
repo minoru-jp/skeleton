@@ -129,6 +129,7 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
                 await _invoke_handler_auto(_on_wait, info)
                 await _resolve_pause_resume(info)
                 await _running.wait()
+            info.elapsed = time.monotonic() - _start_time
             await _invoke_handler_auto(_on_end, info)
         except asyncio.CancelledError as e:
             logger.info("Loop was cancelled")
