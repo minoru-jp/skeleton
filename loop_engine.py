@@ -347,7 +347,7 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
     handle.set_on_tick_after = set_on_tick_after
     handle.set_on_exception = set_on_exception
     handle.set_on_wait = set_on_wait
-    handle.set_next = set_should_stop
+    handle.set_should_stop = set_should_stop
 
     handle.set_handler_caller = set_handler_caller
     handle.set_common_context = set_common_context
