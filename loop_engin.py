@@ -24,6 +24,7 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
     _meta = SimpleNamespace()
     _pending_pause = False
     _pending_resume = False
+    _result = None
 
     class HandleStateError(Exception):
         pass
@@ -132,9 +133,7 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
                 await _running.wait()
             await _invoke_handler_auto(_on_end, info)
         except asyncio.CancelledError as e:
-            #Note:タスクのリークがない場合に限ってこのログは成り立つ
-            #そうでない場合、必ずしもstop()が呼ばれているとは限らない
-            logger.info("Loop was cancelled by stop()")
+            logger.info("Loop was cancelled")
             try:
                 await _invoke_handler_auto(_on_stop, info)
             except Exception as expt_at_stop:
@@ -157,6 +156,12 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
                 _state = UNCLEAN
                 raise expt_on_closed
             _state = CLOSED
+            try:
+                await _invoke_handler_auto(_on_result, info)
+            except Exception:
+                logger.exception(
+                    "Unknown exception in _on_result")
+                raise
 
     
     def start():
@@ -170,6 +175,26 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
         _state = ACTIVE
         _running.set()
         _loop_task = asyncio.create_task(_loop())
+    
+    def ready():
+        '''
+        Prepares the main loop coroutine for manual execution.
+
+        This function does not start the loop immediately.
+        Instead, it returns a coroutine object that the caller can await explicitly.
+        The loop enters ACTIVE state only when the returned coroutine is awaited.
+        This is useful for advanced control scenarios such as testing or synchronized multi-loop execution.
+        '''
+        _check_state(LOAD, error_msg="ready() must be called in LOAD state")
+        coro = _loop()
+
+        async def wrapped():
+            nonlocal _state
+            _state = ACTIVE
+            _running.set()
+            return await coro
+
+        return wrapped()
 
     def stop():
         _check_state(ACTIVE, error_msg="stop() must be called in ACTIVE state")
@@ -200,6 +225,7 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
     _on_tick_after = None 
     _on_exception = None # sync only!
     _on_wait = lambda: None
+    _on_result = None
     _next = lambda: True # sync only!
     _common_context = None
 
@@ -306,6 +332,8 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
     handle.LOAD = LOAD
     handle.ACTIVE = ACTIVE
     handle.CLOSED = CLOSED
+    handle.RUNNING = RUNNING
+    handle.PAUSE = PAUSE
     handle.HandleStateError = HandleStateError
     handle.HandleClosed = HandleClosed
 
@@ -326,6 +354,7 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
     handle.set_common_context = set_common_context
 
     handle.start = start
+    handle.ready = ready
     handle.stop = stop
     handle.pause = pause
     handle.resume = resume
