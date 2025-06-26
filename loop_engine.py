@@ -86,7 +86,7 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
 
     
     async def _resolve_pause_resume(loop_info):
-        nonlocal _mode
+        nonlocal _mode, _pending_pause, _pending_resume
         if _pending_pause:
             _pending_pause = False
             await _invoke_handler_auto(_on_pause, loop_info)
