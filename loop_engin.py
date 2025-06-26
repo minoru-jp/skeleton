@@ -3,24 +3,8 @@ import inspect
 from types import SimpleNamespace
 import logging
 
-# def _atomic_state_change(new_state, new_mode=None):
-#     """状態変更を原子的に行う"""
-#     old_state = _state
-#     old_mode = _mode
-#     try:
-#         _state = new_state
-#         if new_mode is not None:
-#             _mode = new_mode
-#         return old_state, old_mode
-#     except Exception:
-#         _state = old_state
-#         _mode = old_mode
-#         raise
-
-#CONSIDER: ループの操作子でハンドラを呼ぶのはどうなのか？
-#ただ、ループ内で呼ぼうと思っても、フックできる場所はない
-
 def make_loop_engine_handle(role: str, note: str, logger = None):
+
     if not logger:
         logger = logging.getLogger(__name__)
 
@@ -35,6 +19,8 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
     _state = LOAD #assign only main state(LOAD, ACTIVE, CLOSED)
     _mode = RUNNING #assign only sub state(RUNNING, PAUSE)
     _running = asyncio.Event()
+    _loop_task = None
+    _meta = SimpleNamespace()
 
     class HandleStateError(Exception):
         pass
@@ -53,67 +39,18 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
         if _mode in expected:
             return
         raise HandleStateError(f"{error_msg} (expected = {expected}, actual = {_mode})")
-    
 
-    def handle(**kwargs):
-        '''
-        The handle functions as a container that provides the interface to the driver.
-
-        When invoked with keyword arguments, it assigns metadata to the handle.  
-        This metadata can be accessed via `handle.meta.xxx`.  
-        This function returns the handle itself.
-        '''
-        vars(_meta).update(kwargs)
-        return handle
-
-    def _split(*names):
-        def new_handle():
-            return id(handle)
-        vars(new_handle).update({k: getattr(handle, k) for k in names})
-        return new_handle
-
-    _meta = SimpleNamespace()
-
-    handle._split = _split
-    handle.meta = _meta
-
-
-    handle.LOAD = LOAD
-    handle.ACTIVE = ACTIVE
-    handle.CLOSED = CLOSED
-    handle.HandleStateError = HandleStateError
-    handle.HandleClosed = HandleClosed
-
-    # --- internal state ---
-    _on_start = None
-    _on_end = None
-    _on_stop = None
-    _on_pause = None
-    _on_resume = None
-    _on_closed = None
-    _on_tick_before = None
-    _on_tick = None
-    _on_tick_after = None
-    _on_exception = None # sync only
-    _on_interval = lambda: None
-    _on_handler_exception = None #sync only
-    _next = lambda: True
-
-    _loop_task = None
-
-    _common_context = None
-
-    async def _default_handler_caller(handler, context, *args, **kwargs):
-        return handler(_common_context) #Note:共通コンテキスト以外の引数について決まっていない。
+    async def _default_handler_caller(handler, context, loop_info):
+        return handler(context, loop_info)
     
     _handler_caller = _default_handler_caller
 
     # --- handler call helper ---
-    async def _call_normal_path_handler(handler):
+    async def _call_normal_path_handler(handler, loop_info):
         if not handler:
             return
         try:
-            result = _handler_caller(handler, _common_context)
+            result = _handler_caller(handler, _common_context, loop_info)
             if inspect.isawaitable(result):
                 await result
         except Exception as e:
@@ -131,14 +68,14 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
     async def _loop():
         nonlocal _state
         _check_state(LOAD, error_msg="loop() must be called in LOAD state")
-        nonlocal _on_start, _on_end, _on_tick_before, _on_tick_after, _on_tick
+        info = SimpleNamespace()
         try:
-            await _call_normal_path_handler(_on_start)
-            while _next():
-                await _call_normal_path_handler(_on_tick_before)
-                await _call_normal_path_handler(_on_tick)
-                await _call_normal_path_handler(_on_tick_after)
-                await _on_interval()
+            await _call_normal_path_handler(_on_start, info)
+            while _call_normal_path_handler(_next, info):
+                await _call_normal_path_handler(_on_tick_before, info)
+                await _call_normal_path_handler(_on_tick, info)
+                await _call_normal_path_handler(_on_tick_after, info)
+                await _call_normal_path_handler(_on_interval, info)
                 await _running.wait()
             await _call_normal_path_handler(_on_end)
         except asyncio.CancelledError as e:
@@ -162,9 +99,9 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
             except Exception as expt_on_closed:
                 logger.exception(
                     "Unknown exception in _on_closed handler")
+                _state = UNCLEAN
                 raise expt_on_closed
-            finally:
-                _state = CLOSED
+            _state = CLOSED
 
     
     def start():
@@ -201,6 +138,20 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
         await _call_handler(_on_resume)#Note:例外処理がない
 
     # --- explicit handler setters ---
+    _on_start = None
+    _on_end = None
+    _on_stop = None
+    _on_pause = None
+    _on_resume = None
+    _on_closed = None
+    _on_tick_before = None
+    _on_tick = None
+    _on_tick_after = None
+    _on_exception = None # sync only
+    _on_interval = lambda: None
+    _on_handler_exception = None #sync only
+    _next = lambda: True
+    _common_context = None
 
     def _check_state_is_load_for_setter(setter):
         _check_state(LOAD, error_msg=f"{setter.__name__} only allowed in LOAD")
@@ -282,6 +233,32 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
 
 
     # --- bind to handle ---
+    def handle(**kwargs):
+        '''
+        The handle functions as a container that provides the interface to the driver.
+
+        When invoked with keyword arguments, it assigns metadata to the handle.  
+        This metadata can be accessed via `handle.meta.xxx`.  
+        This function returns the handle itself.
+        '''
+        vars(_meta).update(kwargs)
+        return handle
+
+    def _split(*names):
+        def new_handle():
+            return id(handle)
+        vars(new_handle).update({k: getattr(handle, k) for k in names})
+        return new_handle
+
+    handle._split = _split
+    handle.meta = _meta
+
+    handle.LOAD = LOAD
+    handle.ACTIVE = ACTIVE
+    handle.CLOSED = CLOSED
+    handle.HandleStateError = HandleStateError
+    handle.HandleClosed = HandleClosed
+
     handle.set_on_start = set_on_start
     handle.set_on_end = set_on_end
     handle.set_on_stop = set_on_stop
