@@ -304,6 +304,11 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
         _check_state_is_load_for_setter(set_common_context)
         _common_context = obj
     
+    def set_on_result(obj):
+        nonlocal _on_result
+        _check_state_is_load_for_setter(set_on_result)
+        _on_result = obj
+    
 
 
     # --- bind to handle ---
@@ -347,6 +352,7 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
     handle.set_on_exception = set_on_exception
     handle.set_on_wait = set_on_wait
     handle.set_should_stop = set_should_stop
+    handle.set_on_result = set_on_result
 
     handle.set_handler_caller = set_handler_caller
     handle.set_common_context = set_common_context
@@ -364,40 +370,31 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("example")
 
 async def main():
-    handle = make_loop_engine_handle(role="demo", note="10秒間の動作", logger=logger)
+    mul = make_loop_engine_handle(role="multiplication", note="10万回", logger=logger)
+    div = make_loop_engine_handle(role="divide", note="10万回", logger = logger)
 
-    # ハンドラ定義
-    async def on_start(ctx, info):
-        logger.info("Loop started")
+    TIMES = 100000
 
-    async def on_tick(ctx, info):
-        logger.info(f"tick={info.tick}, elapsed={info.elapsed:.2f}s")
-
-    async def on_wait(ctx, info):
-        await asyncio.sleep(1)
-
-    async def on_end(ctx, info):
-        logger.info("Loop ended normally")
-
-    async def on_closed(ctx, info):
-        logger.info("Loop is closing")
-
-    def should_stop(ctx, info):
-        return info.elapsed >= 10.0
+    def on_result(context, info):
+        print("-------------------------------------------")
+        logger.info(info.role)
+        logger.info(info.elapsed)
+    
+    should_stop = lambda c, i: not (i.tick < TIMES)
 
     # ハンドラ登録
-    handle.set_on_start(on_start)
-    handle.set_on_tick(on_tick)
-    handle.set_on_wait(on_wait)
-    handle.set_on_end(on_end)
-    handle.set_on_closed(on_closed)
-    handle.set_common_context(None)
-    handle.set_should_stop(should_stop)  # _next → should_stop に変更した前提
+    mul.set_on_tick(lambda c, i: 1 * 1)
+    mul.set_should_stop(should_stop) 
+    mul.set_on_result(on_result)
+
+    div.set_on_tick(lambda c, i: 1 / 1)
+    div.set_should_stop(should_stop)
+    div.set_on_result(on_result)
 
     # 起動
-    handle.start()
+    mul_coro = mul.ready()
+    div_coro = div.ready()
 
-    # 明示的に終了を待つ（本来は他タスクと共存する想定）
-    await asyncio.sleep(12)  # 少し余裕を持って終了を待つ
+    await asyncio.gather(mul_coro, div_coro)
 
 asyncio.run(main())
