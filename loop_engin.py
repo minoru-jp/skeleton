@@ -24,7 +24,6 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
     _meta = SimpleNamespace()
     _pending_pause = False
     _pending_resume = False
-    _result = None
 
     class HandleStateError(Exception):
         pass
@@ -121,8 +120,8 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
             while True:
                 info.elapsed = time.monotonic() - _start_time
                 info.mode = _mode
-                if _next:
-                    if _invoke_handler_sync(_next, info):
+                if _should_stop:
+                    if _invoke_handler_sync(_should_stop, info):
                         break
                 await _invoke_handler_auto(_on_tick_before, info)
                 await _invoke_handler_auto(_on_tick, info)
@@ -226,7 +225,7 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
     _on_exception = None # sync only!
     _on_wait = lambda: None
     _on_result = None
-    _next = lambda: True # sync only!
+    _should_stop = lambda: True # sync only!
     _common_context = None
 
     async def _default_handler_caller(handler, context, loop_info):
@@ -276,10 +275,10 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
         _check_state_is_load_for_setter(set_on_wait)
         _on_wait = fn
 
-    def set_next(fn):
-        nonlocal _next
-        _check_state_is_load_for_setter(set_next)
-        _next = fn
+    def set_should_stop(fn):
+        nonlocal _should_stop
+        _check_state_is_load_for_setter(set_should_stop)
+        _should_stop = fn
 
     def set_on_pause(fn):
         nonlocal _on_pause
@@ -348,7 +347,7 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
     handle.set_on_tick_after = set_on_tick_after
     handle.set_on_exception = set_on_exception
     handle.set_on_wait = set_on_wait
-    handle.set_next = set_next
+    handle.set_next = set_should_stop
 
     handle.set_handler_caller = set_handler_caller
     handle.set_common_context = set_common_context
@@ -360,3 +359,46 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
     handle.resume = resume
 
     return handle
+
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("example")
+
+async def main():
+    handle = make_loop_engine_handle(role="demo", note="10秒間の動作", logger=logger)
+
+    # ハンドラ定義
+    async def on_start(ctx, info):
+        logger.info("Loop started")
+
+    async def on_tick(ctx, info):
+        logger.info(f"tick={info.tick}, elapsed={info.elapsed:.2f}s")
+
+    async def on_wait(ctx, info):
+        await asyncio.sleep(1)
+
+    async def on_end(ctx, info):
+        logger.info("Loop ended normally")
+
+    async def on_closed(ctx, info):
+        logger.info("Loop is closing")
+
+    def should_stop(ctx, info):
+        return info.elapsed >= 10.0
+
+    # ハンドラ登録
+    handle.set_on_start(on_start)
+    handle.set_on_tick(on_tick)
+    handle.set_on_wait(on_wait)
+    handle.set_on_end(on_end)
+    handle.set_on_closed(on_closed)
+    handle.set_common_context(None)
+    handle.set_should_stop(should_stop)  # _next → should_stop に変更した前提
+
+    # 起動
+    handle.start()
+
+    # 明示的に終了を待つ（本来は他タスクと共存する想定）
+    await asyncio.sleep(12)  # 少し余裕を持って終了を待つ
+
+asyncio.run(main())
