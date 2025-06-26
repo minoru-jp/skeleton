@@ -114,6 +114,7 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
         
         try:
             #logger.info(f"role: {role}; prev of loop: {time.monotonic() * 1000}")
+            logger.info(f"start: {role}")
             _start_time = time.monotonic()
             info.start_time = _start_time
             await _invoke_handler_auto(_on_start, info)
@@ -133,7 +134,7 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
                 await _running.wait()
             #logger.info(f"role: {role}; post of loop: {time.monotonic() * 1000}")
             t1 = time.monotonic()
-            logger.info(f"role: {role}; delta time: {t1 - t0}")
+            logger.info(f"role: {role}; delta time: {(t1 - t0) * 1000} ms")
             info.elapsed = time.monotonic() - _start_time
             await _invoke_handler_auto(_on_end, info)
         except asyncio.CancelledError as e:
@@ -400,15 +401,23 @@ async def main():
     async def on_wait_for_puyo(c, i):
         await asyncio.sleep(WAIT)
 
-    one = 1
+    x = 1
+
+    def on_tick_for_piyo(c, i):
+        nonlocal x
+        x += 1
+    
+    def on_tick_for_puyo(c, i):
+        nonlocal x
+        x += 1
 
     # ハンドラ登録
-    piyo.set_on_tick(lambda c, i: one + 1)
+    piyo.set_on_tick(on_tick_for_piyo)
     piyo.set_should_stop(lambda c, i : not(i.tick < TIMES)) 
     piyo.set_on_wait(on_wait_for_piyo)
     #piyo.set_on_end(on_result_for_piyo)
 
-    puyo.set_on_tick(lambda c, i: f"role: {i.role}")
+    puyo.set_on_tick(on_tick_for_puyo)
     puyo.set_should_stop(lambda c, i : not(i.tick < TIMES))
     puyo.set_on_wait(on_wait_for_puyo)
     #puyo.set_on_end(on_result_for_puyo)
@@ -421,3 +430,5 @@ async def main():
     print("end")
 
 asyncio.run(main())
+
+
