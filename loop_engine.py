@@ -113,9 +113,11 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
         info.pending_resume = _pending_resume # Update in handler invoker
         
         try:
+            #logger.info(f"role: {role}; prev of loop: {time.monotonic() * 1000}")
             _start_time = time.monotonic()
             info.start_time = _start_time
             await _invoke_handler_auto(_on_start, info)
+            t0 = time.monotonic()
             while True:
                 info.elapsed = time.monotonic() - _start_time
                 info.mode = _mode
@@ -129,6 +131,9 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
                 await _invoke_handler_auto(_on_wait, info)
                 await _resolve_pause_resume(info)
                 await _running.wait()
+            #logger.info(f"role: {role}; post of loop: {time.monotonic() * 1000}")
+            t1 = time.monotonic()
+            logger.info(f"role: {role}; delta time: {t1 - t0}")
             info.elapsed = time.monotonic() - _start_time
             await _invoke_handler_auto(_on_end, info)
         except asyncio.CancelledError as e:
@@ -374,7 +379,8 @@ async def main():
     piyo = make_loop_engine_handle(role="add", note="10万回", logger=logger)
     puyo = make_loop_engine_handle(role="string", note="10万回", logger = logger)
 
-    TIMES = 10000000
+    TIMES = 1000000
+    WAIT = 0
 
     def on_result_for_piyo(context, info):
         print("-------------------------------------------")
@@ -388,18 +394,24 @@ async def main():
         logger.info(f"role: {info.role}")
         logger.info(f"elapsed: {info.elapsed * 1000} ms")
     
-    should_stop = lambda c, i: not (i.tick < TIMES)
+    async def on_wait_for_piyo(c, i):
+        await asyncio.sleep(WAIT)
+
+    async def on_wait_for_puyo(c, i):
+        await asyncio.sleep(WAIT)
 
     one = 1
 
     # ハンドラ登録
     piyo.set_on_tick(lambda c, i: one + 1)
     piyo.set_should_stop(lambda c, i : not(i.tick < TIMES)) 
-    piyo.set_on_end(on_result_for_piyo)
+    piyo.set_on_wait(on_wait_for_piyo)
+    #piyo.set_on_end(on_result_for_piyo)
 
     puyo.set_on_tick(lambda c, i: f"role: {i.role}")
     puyo.set_should_stop(lambda c, i : not(i.tick < TIMES))
-    puyo.set_on_end(on_result_for_puyo)
+    puyo.set_on_wait(on_wait_for_puyo)
+    #puyo.set_on_end(on_result_for_puyo)
 
     # 起動
     piyo_coro = piyo.ready()
