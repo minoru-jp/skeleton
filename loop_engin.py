@@ -12,8 +12,8 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
     ACTIVE = 1
     CLOSED = 2
     UNCLEAN = 99 # Final state used instead of CLOSED if _on_closed() fails
-    RUNNING = 10 # sub-state of ACTIVE commute to PAUSE
-    PAUSE = 11 # sub-state of ACTIVE commute to RUNNING
+    RUNNING = 10 # Sub-state of ACTIVE commute to PAUSE
+    PAUSE = 11 # Sub-state of ACTIVE commute to RUNNING
     MEANS_CLOSED = (CLOSED, UNCLEAN)
 
     _state = LOAD #assign only main state(LOAD, ACTIVE, CLOSED)
@@ -21,6 +21,8 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
     _running = asyncio.Event()
     _loop_task = None
     _meta = SimpleNamespace()
+    _pending_pause = False
+    _pending_resume = False
 
     class HandleStateError(Exception):
         pass
@@ -39,11 +41,6 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
         if _mode in expected:
             return
         raise HandleStateError(f"{error_msg} (expected = {expected}, actual = {_mode})")
-
-    async def _default_handler_caller(handler, context, loop_info):
-        return handler(context, loop_info)
-    
-    _handler_caller = _default_handler_caller
 
     # --- handler call helper ---
     async def _call_normal_path_handler(handler, loop_info):
@@ -64,6 +61,19 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
                         "Unknown exception in _handler_caller()")
                     raise handle_exception_err from e
             raise
+    
+    async def _resolve_pause_resume(loop_info):
+        nonlocal _mode
+        if _pending_pause:
+            _pending_pause = False
+            await _call_normal_path_handler(_on_pause, loop_info)
+            _mode = PAUSE
+            _running.clear()
+        if _pending_resume:
+            _pending_resume = False
+            _mode = RUNNING
+            _running.set()
+            await _call_normal_path_handler(_on_resume, loop_info)
 
     async def _loop():
         nonlocal _state
@@ -75,13 +85,14 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
                 await _call_normal_path_handler(_on_tick_before, info)
                 await _call_normal_path_handler(_on_tick, info)
                 await _call_normal_path_handler(_on_tick_after, info)
-                await _call_normal_path_handler(_on_interval, info)
+                await _call_normal_path_handler(_on_wait, info)
+                await _resolve_pause_resume(info)
                 await _running.wait()
-            await _call_normal_path_handler(_on_end)
+            await _call_normal_path_handler(_on_end, info)
         except asyncio.CancelledError as e:
             logger.info("Loop was cancelled by stop()")
             try:
-                await _call_normal_path_handler(_on_stop)
+                await _call_normal_path_handler(_on_stop, info)
             except Exception as expt_at_stop:
                 logger.debug("on_stop failed")
                 raise expt_at_stop from e
@@ -89,13 +100,13 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
             logger.exception("Unknown exception in _loop()")
             try:
                 if _on_exception:
-                    _on_exception(e)
+                    _on_exception(e, _common_context, info)
             except Exception as expt_at_handle_exception:
                 raise expt_at_handle_exception from e
             raise
         finally:
             try:
-                await _call_normal_path_handler(_on_closed)
+                await _call_normal_path_handler(_on_closed, info)
             except Exception as expt_on_closed:
                 logger.exception(
                     "Unknown exception in _on_closed handler")
@@ -121,37 +132,37 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
         if _loop_task and not _loop_task.done():
             _loop_task.cancel()
     
-    async def pause():
-        nonlocal _mode
+    def pause():
+        nonlocal _pending_pause
         _check_state(ACTIVE, error_msg="pause() only allowed in ACTIVE")
         _check_mode(RUNNING, error_msg="pause() only allowed from RUNNING")
-        _mode = PAUSE
-        _running.clear()
-        await _call_handler(_on_pause)#Note:例外処理がない
+        _pending_pause = True
 
-    async def resume():
-        nonlocal _mode
+    def resume():
+        nonlocal _pending_resume
         _check_state(ACTIVE, error_msg="resume() only allowed in ACTIVE")
         _check_mode(PAUSE, error_msg="resume() only allowed from PAUSE")
-        _mode = RUNNING
-        _running.set()
-        await _call_handler(_on_resume)#Note:例外処理がない
+        _pending_resume = True
 
     # --- explicit handler setters ---
     _on_start = None
     _on_end = None
-    _on_stop = None
-    _on_pause = None
+    _on_stop = None 
+    _on_pause = None 
     _on_resume = None
     _on_closed = None
-    _on_tick_before = None
-    _on_tick = None
-    _on_tick_after = None
-    _on_exception = None # sync only
-    _on_interval = lambda: None
-    _on_handler_exception = None #sync only
-    _next = lambda: True
+    _on_tick_before = None 
+    _on_tick = None 
+    _on_tick_after = None 
+    _on_exception = None # sync only!
+    _on_wait = lambda: None
+    _on_handler_exception = None #sync only!
+    _next = lambda: True # sync only!
     _common_context = None
+
+    async def _default_handler_caller(handler, context, loop_info):
+        return handler(context, loop_info)
+    _handler_caller = _default_handler_caller
 
     def _check_state_is_load_for_setter(setter):
         _check_state(LOAD, error_msg=f"{setter.__name__} only allowed in LOAD")
@@ -191,10 +202,10 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
         _check_state_is_load_for_setter(set_on_tick_after)
         _on_tick_after = fn
 
-    def set_on_interval(fn):
-        nonlocal _on_interval
-        _check_state_is_load_for_setter(set_on_interval)
-        _on_interval = fn
+    def set_on_wait(fn):
+        nonlocal _on_wait
+        _check_state_is_load_for_setter(set_on_wait)
+        _on_wait = fn
 
     def set_next(fn):
         nonlocal _next
@@ -269,7 +280,7 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
     handle.set_on_tick = set_on_tick
     handle.set_on_tick_after = set_on_tick_after
     handle.set_on_exception = set_on_exception
-    handle.set_on_interval = set_on_interval
+    handle.set_on_wait = set_on_wait
     handle.set_next = set_next
 
     handle.set_handler_caller = set_handler_caller
