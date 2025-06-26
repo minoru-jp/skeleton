@@ -222,9 +222,9 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
     _on_tick = None 
     _on_tick_after = None 
     _on_exception = None # sync only!
-    _on_wait = lambda: None
+    _on_wait = None
     _on_result = None
-    _should_stop = lambda: True # sync only!
+    _should_stop = None # sync only!
     _common_context = None
 
     def _default_handler_caller(handler, context, loop_info):
