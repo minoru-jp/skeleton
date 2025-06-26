@@ -228,7 +228,7 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
     _common_context = None
 
     async def _default_handler_caller(handler, context, loop_info):
-        return handler(context, loop_info)
+        return await handler(context, loop_info)
     _handler_caller = _default_handler_caller
 
     def _check_state_is_load_for_setter(setter):
