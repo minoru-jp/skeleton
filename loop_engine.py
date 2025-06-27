@@ -126,6 +126,17 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
         'on_circuit_exception': None
     }
     
+    async def _invoke_exception_handler_auto(event, e, **data):
+        nonlocal _prev_event, _prev_result
+        ex_event = event
+        ex_handler = _handlers[ex_event]
+        if ex_handler:
+            ctx = _context_builder(ex_event, e=e, **data)
+            tmp = ex_handler(ctx)
+            result = await tmp if inspect.isawaitable(tmp) else tmp
+            _prev_event = ex_event
+            _prev_result = result
+            return result
 
     async def _invoke_handler_auto(event, **extra_ctx):
         nonlocal _state, _broken, _prev_event, _prev_result
@@ -150,14 +161,8 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
             logger.exception(f"[{role}] Handler {event} failed")
             _broken = True
             try:
-                ex_event = "on_handler_exception"
-                ex_handler = _handlers[ex_event]
-                if ex_handler:
-                    ctx = _context_builder(ex_event, e=e, failed=event, **extra_ctx)
-                    tmp = ex_handler(ctx)
-                    result = await tmp if inspect.isawaitable(tmp) else tmp
-                    _prev_event = ex_event
-                    _prev_result = result
+                _invoke_exception_handler_auto(
+                    'on_handler_exception', e, failed = event)
             except Exception as nested_e:
                 logger.exception(f"[{role}] Handler exception handler itself failed")
                 raise nested_e from e
@@ -205,14 +210,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
             logger.exception(f"[{role}] Unknown exception in circuit")
             _broken = True
             try:
-                ex_event = "on_circuit_exception"
-                ex_handler = _handlers[ex_event]
-                if ex_handler:
-                    ctx = _context_builder(ex_event, e=e)
-                    tmp = ex_handler(ctx)
-                    result = await tmp if inspect.isawaitable(tmp) else tmp
-                    _prev_event = ex_event
-                    _prev_result = result
+                _invoke_exception_handler_auto('on_circuit_exception', e)
             except Exception as nested_e:
                 raise nested_e from e
             raise
