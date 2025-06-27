@@ -1,21 +1,21 @@
 import asyncio
 import inspect
-import time
 from types import SimpleNamespace
 import logging
 
-def make_loop_engine_handle(role: str, note: str, logger = None):
+def make_loop_engine_handle(role: str = 'loop', logger = None):
 
     if not logger:
         logger = logging.getLogger(__name__)
 
     LOAD = 0
     ACTIVE = 1
-    CLOSED = 2
-    UNCLEAN = 99 # Final state used instead of CLOSED if _on_closed() fails
     RUNNING = 10 # Sub-state of ACTIVE commute to PAUSE
     PAUSE = 11 # Sub-state of ACTIVE commute to RUNNING
-    MEANS_CLOSED = (CLOSED, UNCLEAN)
+    CLOSED = 2
+    UNCLEAN = 20 # Final state used instead of CLOSED if _on_closed() fails
+    BROKEN = 21 # Final state used instead of CLOSED if exception happened in circuit
+    TERMINAL_STATES = (CLOSED, UNCLEAN, BROKEN)
 
     _state = LOAD #assign only main state(LOAD, ACTIVE, CLOSED)
     _mode = RUNNING #assign only sub state(RUNNING, PAUSE)
@@ -24,17 +24,118 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
     _meta = SimpleNamespace()
     _pending_pause = False
     _pending_resume = False
+    _prev_event = ''
+    _prev_result = None
 
     class HandleStateError(Exception):
         pass
     class HandleClosed(HandleStateError):
         pass
 
+    async def _invoke_handler_auto(event, handler, **extra_ctx):
+        nonlocal _state, _prev_event, _prev_result
+        try:
+            if not handler:
+                return
+            ctx = _context_builder(
+                event,
+                prev_ev = _prev_event,
+                prev_result = _prev_result,
+                pending_pause = _pending_pause,
+                pending_resume = _pending_resume,
+                **extra_ctx
+            )
+            tmp = handler(ctx)
+            result = await tmp if inspect.isawaitable(tmp) else tmp
+            _prev_event = event
+            _prev_result = result
+            return result
+        except Exception as e:
+            logger.exception(f"[{role}] Handler {event} failed")
+            _state = BROKEN
+            if _on_handler_exception:
+                try:
+                    ctx = _context_builder('on_exception', e=e, failed_event=event, **extra_ctx)
+                    _on_handler_exception(ctx, e)
+                except Exception as nested_e:
+                    logger.exception(f"[{role}] Handler exception handler itself failed")
+                    raise nested_e from e
+            raise
+    
+    async def _resolve_pause_resume():
+        nonlocal _mode, _pending_pause, _pending_resume
+        if _pending_pause:
+            _pending_pause = False
+            await _invoke_handler_auto('on_pause', _on_pause)
+            _mode = PAUSE
+            _running.clear()
+        if _pending_resume:
+            _pending_resume = False
+            _mode = RUNNING
+            await _invoke_handler_auto('on_resume', _on_resume)
+            _running.set()
+
+    async def _loop():
+        nonlocal _state
+        try:
+            # _context_builder is expected derives from a closure, like this
+            # def create_context_builder():
+            #    ctx = ...
+            #    def context_builder(event, **kwargs):
+            #        if event == 'init':
+            #            vars(ctx).update(kwargs)
+            #        elif event == 'on_start':
+            #            ...
+            #        elif ...
+            #        return ctx
+            #    return context_builder
+            _ = _context_builder(
+                'init',
+                role = role,
+                RUNNING = RUNNING, PAUSE = PAUSE)
+            await _invoke_handler_auto('on_start', _on_start)
+            while True:
+                if _should_stop:
+                    if await _invoke_handler_auto('on_should_stop', _should_stop):
+                        break
+                await _invoke_handler_auto('on_tick_before', _on_tick_before)
+                await _invoke_handler_auto('on_tick', _on_tick)
+                await _invoke_handler_auto('on_tick_after', _on_tick_after)
+                await _invoke_handler_auto('on_wait', _on_wait)
+                await _resolve_pause_resume()
+                await _running.wait()
+            await _invoke_handler_auto('on_end', _on_end)
+        except asyncio.CancelledError as e:
+            logger.info(f"[{role}] Loop was cancelled")
+            await _invoke_handler_auto('_on_stop', _on_stop)
+        except Exception as e:
+            if _state == BROKEN:
+                raise
+            logger.exception(f"[{role}] Unknown exception in circuit")
+            _state = BROKEN
+            try:
+                if _on_circuit_exception:
+                    ctx = _context_builder('on_circuit_exception', e = e)
+                    _on_circuit_exception(ctx, e)
+            except Exception as nested_e:
+                raise nested_e from e
+            raise
+        finally:
+            try:
+                await _invoke_handler_auto('on_closed', _on_closed)
+                _state = CLOSED
+            except Exception:
+                _state = UNCLEAN
+            try:
+                await _invoke_handler_auto('on_result', _on_result)
+            except Exception:
+                return
+
     def _check_state(*expected: int, error_msg: str, notify_closed: bool = True) -> None:
         if _state in expected:
             return
         err_log = f"{error_msg} (expected = {expected}, actual = {_state})"
-        if _state in MEANS_CLOSED and notify_closed:
+        if _state in TERMINAL_STATES and notify_closed:
             raise HandleClosed(err_log)
         raise HandleStateError(err_log)
     
@@ -42,133 +143,8 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
         if _mode in expected:
             return
         raise HandleStateError(f"{error_msg} (expected = {expected}, actual = {_mode})")
-
-    # --- handler call helper ---
-    async def _invoke_handler_auto(handler, loop_info):
-        loop_info.pending_pause = _pending_pause
-        loop_info.pending_resume = _pending_resume
-        if not handler:
-            return
-        try:
-            result = _handler_caller(handler, _common_context, loop_info)
-            if inspect.isawaitable(result):
-                await result
-        except Exception as e:
-            logger.exception("_handler_caller failed")
-            if _on_exception:
-                try:
-                    #再入を防ぐために直接呼び出す(引数は固定)
-                    _on_exception(e, _common_context, loop_info)
-                except Exception as handle_exception_err:
-                    logger.exception(
-                        "Unknown exception in _handler_caller()")
-                    raise handle_exception_err from e
-            raise
     
-    def _invoke_handler_sync(handler, loop_info):
-        loop_info.pending_pause = _pending_pause
-        loop_info.pending_resume = _pending_resume
-        if not handler:
-            return
-        try:
-            return _handler_caller(handler, _common_context, loop_info)
-        except Exception as e:
-            logger.exception("_handler_caller failed")
-            if _on_exception:
-                try:
-                    #再入を防ぐために直接呼び出す(引数は固定)
-                    _on_exception(e, _common_context, loop_info)
-                except Exception as handle_exception_err:
-                    logger.exception(
-                        "Unknown exception in _handler_caller()")
-                    raise handle_exception_err from e
-            raise
 
-    
-    async def _resolve_pause_resume(loop_info):
-        nonlocal _mode, _pending_pause, _pending_resume
-        if _pending_pause:
-            _pending_pause = False
-            await _invoke_handler_auto(_on_pause, loop_info)
-            _mode = PAUSE
-            _running.clear()
-        if _pending_resume:
-            _pending_resume = False
-            _mode = RUNNING
-            _running.set()
-            await _invoke_handler_auto(_on_resume, loop_info)
-
-    async def _loop():
-        nonlocal _state
-        info = SimpleNamespace()
-        info.RUNNING = RUNNING
-        info.PAUSE = PAUSE
-        info.role = role
-        info.note = note
-        info.start_time = 0.0
-        info.tick = 0
-        info.elapsed = 0.0
-        info.mode = _mode
-        info.pending_pause = _pending_pause # Update in handler invoker
-        info.pending_resume = _pending_resume # Update in handler invoker
-        
-        try:
-            #logger.info(f"role: {role}; prev of loop: {time.monotonic() * 1000}")
-            logger.info(f"start: {role}")
-            _start_time = time.monotonic()
-            info.start_time = _start_time
-            await _invoke_handler_auto(_on_start, info)
-            t0 = time.monotonic()
-            while True:
-                info.elapsed = time.monotonic() - _start_time
-                info.mode = _mode
-                if _should_stop:
-                    if _invoke_handler_sync(_should_stop, info):
-                        break
-                await _invoke_handler_auto(_on_tick_before, info)
-                await _invoke_handler_auto(_on_tick, info)
-                info.tick += 1
-                await _invoke_handler_auto(_on_tick_after, info)
-                await _invoke_handler_auto(_on_wait, info)
-                await _resolve_pause_resume(info)
-                await _running.wait()
-            #logger.info(f"role: {role}; post of loop: {time.monotonic() * 1000}")
-            t1 = time.monotonic()
-            logger.info(f"role: {role}; delta time: {(t1 - t0) * 1000} ms")
-            info.elapsed = time.monotonic() - _start_time
-            await _invoke_handler_auto(_on_end, info)
-        except asyncio.CancelledError as e:
-            logger.info("Loop was cancelled")
-            try:
-                await _invoke_handler_auto(_on_stop, info)
-            except Exception as expt_at_stop:
-                logger.debug("on_stop failed")
-                raise expt_at_stop from e
-        except Exception as e:
-            logger.exception("Unknown exception in _loop()")
-            try:
-                if _on_exception:
-                    _on_exception(e, _common_context, info)
-            except Exception as expt_at_handle_exception:
-                raise expt_at_handle_exception from e
-            raise
-        finally:
-            try:
-                await _invoke_handler_auto(_on_closed, info)
-            except Exception as expt_on_closed:
-                logger.exception(
-                    "Unknown exception in _on_closed handler")
-                _state = UNCLEAN
-                raise expt_on_closed
-            _state = CLOSED
-            try:
-                await _invoke_handler_auto(_on_result, info)
-            except Exception:
-                logger.exception(
-                    "Unknown exception in _on_result")
-                raise
-
-    
     def start():
         '''
         Launches the main loop as a background task.
@@ -228,15 +204,12 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
     _on_tick_before = None 
     _on_tick = None 
     _on_tick_after = None 
-    _on_exception = None # sync only!
+    _on_handler_exception = None
+    _on_circuit_exception = None
     _on_wait = None
     _on_result = None
-    _should_stop = None # sync only!
-    _common_context = None
-
-    def _default_handler_caller(handler, context, loop_info):
-        return handler(context, loop_info)
-    _handler_caller = _default_handler_caller
+    _should_stop = None
+    _context_builder = lambda *a, **kw: None
 
     def _check_state_is_load_for_setter(setter):
         _check_state(LOAD, error_msg=f"{setter.__name__} only allowed in LOAD")
@@ -295,26 +268,26 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
         nonlocal _on_resume
         _check_state_is_load_for_setter(set_on_resume)
         _on_resume = fn
+    
+    def set_on_handler_exception(fn):
+        nonlocal _on_handler_exception
+        _check_state_is_load_for_setter(set_on_handler_exception)
+        _on_handler_exception = fn
 
-    def set_on_exception(fn):
-        nonlocal _on_exception
-        _check_state_is_load_for_setter(set_on_exception)
-        _on_exception = fn
-
-    def set_handler_caller(fn):
-        nonlocal _handler_caller
-        _check_state_is_load_for_setter(set_handler_caller)
-        _handler_caller = fn
-
-    def set_common_context(obj):
-        nonlocal _common_context
-        _check_state_is_load_for_setter(set_common_context)
-        _common_context = obj
+    def set_on_circuit_exception(fn):
+        nonlocal _on_circuit_exception
+        _check_state_is_load_for_setter(set_on_circuit_exception)
+        _on_circuit_exception = fn
     
     def set_on_result(obj):
         nonlocal _on_result
         _check_state_is_load_for_setter(set_on_result)
         _on_result = obj
+    
+    def set_context_builder(fn):
+        nonlocal _context_builder
+        _check_state_is_load_for_setter(set_context_builder)
+        _context_builder = fn
     
 
 
@@ -356,13 +329,11 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
     handle.set_on_tick_before = set_on_tick_before
     handle.set_on_tick = set_on_tick
     handle.set_on_tick_after = set_on_tick_after
-    handle.set_on_exception = set_on_exception
+    handle.set_on_handler_exception = set_on_handler_exception
+    handle.set_on_circuit_exception = set_on_circuit_exception
     handle.set_on_wait = set_on_wait
     handle.set_should_stop = set_should_stop
     handle.set_on_result = set_on_result
-
-    handle.set_handler_caller = set_handler_caller
-    handle.set_common_context = set_common_context
 
     handle.start = start
     handle.ready = ready
@@ -371,64 +342,3 @@ def make_loop_engine_handle(role: str, note: str, logger = None):
     handle.resume = resume
 
     return handle
-
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("example")
-
-async def main():
-    piyo = make_loop_engine_handle(role="add", note="10万回", logger=logger)
-    puyo = make_loop_engine_handle(role="string", note="10万回", logger = logger)
-
-    TIMES = 1000000
-    WAIT = 0
-
-    def on_result_for_piyo(context, info):
-        print("-------------------------------------------")
-        logger.info("piyo")
-        logger.info(f"role: {info.role}")
-        logger.info(f"elapsed: {info.elapsed * 1000} ms")
-    
-    def on_result_for_puyo(context, info):
-        print("-------------------------------------------")
-        logger.info("puyo")
-        logger.info(f"role: {info.role}")
-        logger.info(f"elapsed: {info.elapsed * 1000} ms")
-    
-    async def on_wait_for_piyo(c, i):
-        await asyncio.sleep(WAIT)
-
-    async def on_wait_for_puyo(c, i):
-        await asyncio.sleep(WAIT)
-
-    x = 1
-
-    def on_tick_for_piyo(c, i):
-        nonlocal x
-        x += 1
-    
-    def on_tick_for_puyo(c, i):
-        nonlocal x
-        x += 1
-
-    # ハンドラ登録
-    piyo.set_on_tick(on_tick_for_piyo)
-    piyo.set_should_stop(lambda c, i : not(i.tick < TIMES)) 
-    piyo.set_on_wait(on_wait_for_piyo)
-    #piyo.set_on_end(on_result_for_piyo)
-
-    puyo.set_on_tick(on_tick_for_puyo)
-    puyo.set_should_stop(lambda c, i : not(i.tick < TIMES))
-    puyo.set_on_wait(on_wait_for_puyo)
-    #puyo.set_on_end(on_result_for_puyo)
-
-    # 起動
-    piyo_coro = piyo.ready()
-    puyo_coro = puyo.ready()
-
-    await asyncio.gather(piyo_coro, puyo_coro)
-    print("end")
-
-asyncio.run(main())
-
-
