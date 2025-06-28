@@ -7,6 +7,8 @@ from types import SimpleNamespace
 
 from typing import Any, Awaitable, Callable, Union, Protocol
 
+import textwrap
+
 
 _Handler = Callable[[Any], Union[Any, Awaitable[Any]]]
 
@@ -221,10 +223,6 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
 
     _meta = SimpleNamespace()
     
-    
-
-    
-    
     async def _loop_engine():
         try:
             init = SimpleNamespace()
@@ -316,21 +314,21 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
     '''
 
     _PAUSABLE_TEMPLATE = '''\
-    if rmode_manager.enter_if_pending_pause():
+    if running_manager.enter_if_pending_pause():
         {on_pause}
         try:
-            revent_updater.clear()
+            running_event.clear()
         except Exception as e:
             raise CircuitError(e)
 
-    if rmode_manager.enter_if_pending_resume():
+    if running_manager.enter_if_pending_resume():
         {on_resume}
         try:
-            revent_updater.event.set()
+            running_event.event.set()
         except Exception as e:
             raise CircuitError(e)
     try:
-        await revent_updater.wait()
+        await running_event.wait()
     except Exception as e:
         raise CircuitError(e)
     '''
@@ -354,7 +352,6 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
         running_manager,
         running_event,
         pausable:bool,
-        detect_pause: bool,
         break_exc,
         handler_err_exc,
         circuit_err_exc,
@@ -379,7 +376,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
             on_resume = invoking_parts.get('on_resume', '')
         ) if pausable else ''
 
-        full_code = _CIRCUIT_TEMPLATE.format(
+        full_code = textwrap.dedent(_CIRCUIT_TEMPLATE.format(
             async_ = 'async ' if includes_async_function else '',
             name = circuit_name,
             should_stop = invoking_parts.get('should_stop', ''),
@@ -388,7 +385,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
             on_tick_after = invoking_parts.get('on_tick_after', ''),
             on_wait = invoking_parts.get('on_wait', ''),
             pause_resume = pause_code
-        )
+        ))
 
         namespace = {
             'ctx_updater': ctx_updater,
