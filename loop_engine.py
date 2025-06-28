@@ -224,7 +224,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
     _meta = SimpleNamespace()
 
 
-    async def _invoke_handler(event, ctx_updater, ctx, rs_setter):
+    async def _invoke_handler(event, ctx_updater, ctx):
         handler = _handlers.get(event, None)
         if not handler:
             return
@@ -232,23 +232,12 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
         try:
             tmp = handler(ctx)
             result = await tmp if inspect.isawaitable(tmp) else tmp
-            rs_setter.set_prev(event, result)
-        except Exception as e:
-            raise HandlerError(event, e)
-    
-    async def _invoke_exception_handler(event, e, ctx_updater, ctx, rs_setter):
-        handler = _handlers.get(event, None)
-        if not handler:
-            return
-        ctx_updater(event)
-        try:
-            tmp = handler(ctx)
-            result = await tmp if inspect.isawaitable(tmp) else tmp
-            rs_setter.set_prev(event, result)
+            result_setter.set_prev(event, result)
         except Exception as e:
             raise HandlerError(event, e)
 
     def _create_loop_environment():
+        # TODO: Consider how to prevent handlers from modifying this
         env = SimpleNamespace()
         env.init = SimpleNamespace()
         env.init.role = role
@@ -261,9 +250,12 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
         env.const.mode = SimpleNamespace()
         env.const.mode.RUNNING = RUNNING
         env.const.mode.PAUSE = PAUSE
+        env.type = SimpleNamespace()
+        env.type.HandlerError = HandlerError
         env.signal = SimpleNamespace()
         env.signal.Break = Break
         env.result_reader = result_reader
+        env.state = ACTIVE
         env.exc = None
         return env
 
@@ -281,16 +273,19 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
         except HandlerError as e:
             event = e.event
             orig_e = e.orig_exception
+            # TODO: Consider how to pass exceptions to the exception handler
+            env.exc = e
             logger.exception(f"[{role}] {event} Handler failed")
             try:
-                _invoke_exception_handler('on_handler_exception', e)
+                _invoke_handler('on_handler_exception')
             except Exception as nested_e:
                 raise nested_e from e
             raise orig_e from None
         except Exception as e:
+            env.exc = e
             logger.exception(f"[{role}] Unknown exception in circuit")
             try:
-                _invoke_exception_handler('on_circuit_exception', e)
+                _invoke_handler('on_circuit_exception')
             except Exception as nested_e:
                 raise nested_e from e
             raise
