@@ -95,6 +95,8 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
     NO_RESULT = object()
 
     _state = LOAD # LOAD -> ACTIVE -> CLOSED | UNCLEAN
+
+    _circuit = None
     
     _loop_task = None
 
@@ -310,7 +312,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
                 _loop_task = None
                 _meta = None
 
-    #asyncの場合、末尾スペースを忘れない->'async '
+
     _CIRCUIT_TEMPLATE = '''\
 {async_}def {name}(ctx_updater, ctx):
     current = ''
@@ -415,9 +417,8 @@ except Exception as e:
             'CircuitError': circuit_err_exc,
             **ns_for_handlers
         }
-        #exec(full_code, globals(), namespace)
-        #return namespace[circuit_name], full_code
-        return full_code
+        exec(full_code, globals(), namespace)
+        return namespace[circuit_name], full_code
 
 
     def _check_state(*expected: int, error_msg: str, notify_closed: bool = True) -> None:
@@ -467,8 +468,9 @@ except Exception as e:
         return wrapped()
 
     def compile():
+        nonlocal _circuit
         _check_state(LOAD, error_msg="compile() must be called in LOAD state")
-        _circuit_code = _compile_circuit(
+        _circuit, _circuit_code = _compile_circuit(
         circuit_name='_circuit',
         handlers=_handlers,
         notify_ctx=True,
@@ -628,23 +630,58 @@ except Exception as e:
     return handle
 
 
-h = make_loop_engine_handle()
 
-# 適当なハンドラ（中身は何でもよい）
-async def dummy_handler(ctx):
-    return None
 
-def dummy_handler_sync(ctx):
-    return None
 
-# 必須イベントハンドラを登録（circuitに入るものだけで十分）
-#h.set_should_stop(dummy_handler)
-#h.set_on_tick_before(dummy_handler)
-h.set_on_tick(dummy_handler_sync)
-#h.set_on_tick_after(dummy_handler)
-h.set_on_wait(dummy_handler)
-h.set_on_pause(dummy_handler)
-h.set_on_resume(dummy_handler_sync)
+import random
+from datetime import datetime, timedelta
 
-# コンパイルしてcircuitコードの出力を確認
-h.compile()
+async def main():
+
+    h = make_loop_engine_handle()
+
+    def on_tick(ctx):
+        print("tick!")
+
+    async def on_wait(ctx):
+        print("wait a second")
+        asyncio.sleep(1)
+
+    def on_pause(ctx):
+        print("pause")
+
+    def on_resume(ctx):
+        print("resume!")
+
+    # 必須イベントハンドラを登録（circuitに入るものだけで十分）
+    #h.set_should_stop(dummy_handler)
+    #h.set_on_tick_before(dummy_handler)
+    h.set_on_tick(on_tick)
+    #h.set_on_tick_after(dummy_handler)
+    h.set_on_wait(on_wait)
+    h.set_on_pause(on_pause)
+    h.set_on_resume(on_resume)
+
+    # コンパイルしてcircuitコードの出力を確認
+    h.compile()
+
+    loop_coro = h.ready()  # コルーチンを取得（まだ開始されていない）
+
+    # 別タスクとしてループ起動
+    task = asyncio.create_task(loop_coro)
+
+    # 1分間だけ実行し、途中で pause/resume をランダムに実行
+    end_time = datetime.now() + timedelta(seconds=60)
+    while datetime.now() < end_time:
+        await asyncio.sleep(random.uniform(5, 10))  # 5〜10秒おきに発火
+        h.pause()
+        await asyncio.sleep(random.uniform(2, 4))  # 少し停止してから
+        h.resume()
+
+    # 最後にループを止める（任意で明示）
+    h.stop()
+
+    await task  # ループタスクの終了を待つ
+
+# 実行
+asyncio.run(main())
