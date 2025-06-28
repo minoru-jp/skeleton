@@ -391,7 +391,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
             includes_async_function |= async_func
             invoking_parts[event] = _INVOKE_HANDLER_TEMPLATE.format(
                 event = event,
-                ctx_update = f'ctx_updater({event})' if notify_ctx else '',
+                ctx_update = f'ctx_updater("{event}")' if notify_ctx else '',
                 await_ = 'await ' if async_func else '',
             )
             ns_for_handlers[event] = handler
