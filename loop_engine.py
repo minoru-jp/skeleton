@@ -254,12 +254,15 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
         env.type.HandlerError = HandlerError
         env.signal = SimpleNamespace()
         env.signal.Break = Break
+        env.loop_task = None
         env.result_reader = result_reader
+        env.mode_reader = running_reader
         env.state = ACTIVE
         env.exc = None
         return env
 
     async def _loop_engine():
+        nonlocal _loop_task, _meta
         try:
             env = _create_loop_environment()
             ctx_updater = _context_updater_factory(env)
@@ -282,6 +285,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
                 raise nested_e from e
             raise orig_e from None
         except Exception as e:
+            # TODO: Consider how to pass exceptions to the exception handler
             env.exc = e
             logger.exception(f"[{role}] Unknown exception in circuit")
             try:
@@ -291,23 +295,18 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
             raise
         finally:
             try:
-                await _invoke_handler(
-                    'on_closed',
-                    state = _state,
-                    mode = _mode,
-                    loop_task = _loop_task)
+                await _invoke_handler('on_closed')
                 _state = CLOSED
             except Exception:
                 _state = UNCLEAN
+                env.state = _state
             try:
-                return await _invoke_handler(
-                    'on_result', state = _state, mode = _mode)
+                return await _invoke_handler('on_result')
             except Exception:
                 return NO_RESULT
             finally:
-                _context_builder = None
+                result_cleaner.clean()
                 _handlers.clear()
-                _prev_result = None
                 _loop_task = None
                 _meta = None
 
