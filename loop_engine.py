@@ -426,6 +426,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
         _check_state(LOAD, error_msg="start() must be called in LOAD state")
         _state = ACTIVE
         revent_updater.set()
+        revent_updater.set()
         _loop_task = asyncio.create_task(_loop_engine())
     
     def ready():
@@ -443,6 +444,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
         async def wrapped():
             nonlocal _state
             _state = ACTIVE
+            revent_updater.set()
             revent_updater.set()
             return await coro
 
