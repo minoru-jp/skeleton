@@ -80,14 +80,6 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
     NO_RESULT = object()
 
     _state = LOAD # LOAD -> ACTIVE -> CLOSED | UNCLEAN
-
-    _mode = RUNNING # RUNNING <-> PAUSE
-    _running = asyncio.Event()
-    _pending_pause = False
-    _pending_resume = False
-
-    _prev_event = ''
-    _prev_result = None
     
     _loop_task = None
 
@@ -100,7 +92,28 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
         _pending_pause = False
         _pending_resume = False
 
-        class RunningModeUpdater:
+        class RunningModeManager:
+            __slots__ = ()
+            @staticmethod
+            def enter_if_pending_pause():
+                nonlocal _mode, _pending_pause
+                if _pending_pause:
+                    _pending_pause = False
+                    _mode = PAUSE
+                    return True
+                else:
+                    return False
+            @staticmethod
+            def enter_if_pending_resume():
+                nonlocal _mode, _pending_resume
+                if _pending_resume:
+                    _pending_resume = False
+                    _mode = RUNNING
+                    return True
+                else:
+                    return False
+
+        class RunningModeSetter:
             __slots__ = ()
             @staticmethod
             def set_pause():
@@ -108,18 +121,10 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
                 _mode = PAUSE
                 _pending_pause = True
             @staticmethod
-            def reset_pause():
-                nonlocal _pending_pause
-                _pending_pause = False
-            @staticmethod
             def set_resume():
                 nonlocal _mode, _pending_resume
                 _mode = RUNNING
                 _pending_resume = True
-            @staticmethod
-            def reset_resume():
-                nonlocal _pending_resume
-                _pending_resume = False
         
         class RunningEventUpdater:
             __slots__ = ()
@@ -145,7 +150,10 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
             def is_pending_resume():
                 return _pending_resume
         
-        return RunningModeUpdater(), RunningEventUpdater(), RunningModeReader()
+        return (RunningModeManager(),
+                RunningModeSetter(),
+                RunningEventUpdater(),
+                RunningModeReader())
 
     def create_result_chain_some():
 
@@ -360,24 +368,20 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
 
     _INVOKE_HANDLER_TEMPLATE = '''\
     current = '{event}'
-    ctx_updater(prev_event = prev, prev_result = result{pending_flags})
+    {ctx_update}
     result = {await_}{event}(ctx)
-    prev = '{event}'
+    result_setter.set_prev(current, result)
     '''
 
     _PAUSABLE_TEMPLATE = '''\
-    if running.pending_pause:
-        running.pending_pause = False
+    if rmode_setter.enter_if_pending_pause():
         {on_pause}
-        running.mode = PAUSE
         try:
-            running.event.clear()
+            revent_setter.clear()
         except Exception as e:
             raise CircuitError(e)
 
-    if running.pending_resume:
-        running.pending_resume = False
-        running.mode = RUNNING
+    if rmode_setter.enter_if_pending_resume():
         {on_resume}
         try:
             running.event.set()
