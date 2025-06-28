@@ -507,7 +507,7 @@ except Exception as e:
         handler_err_exc=HandlerError,
         circuit_err_exc=CircuitError,
         )
-        print(_circuit_code)
+        #print(_circuit_code)
 
     def stop():
         _check_state(ACTIVE, error_msg="stop() must be called in ACTIVE state")
@@ -673,10 +673,14 @@ async def main():
             raise ctx.env.signal.Break
 
     def on_tick(ctx):
-        print(f"tick{('!' * ctx.count)}")
+        print(f'\r{"( ˶°ㅁ°) !!" if ctx.count % 2 == 0 else "!!(°ㅁ°˶ )"} {"|/-\\"[ctx.count % 4]}', end='')
+        #print(f"{' ' * ctx.count} ┏(‘o’)┛ ┏(‘o’)┛ ┏(‘o’)┛", end ="\r")
+        #print(' ' + ("tick" if ctx.count % 2 == 0 else "tack") + str(ctx.count), end="\r")
+        #print(f"{' ' * 30}{'(|)  (0v0)  (|)' if (ctx.count % 2) == 0 else '(\\/) (0v0) (\\/)'}", end="\r")
+        #print(ctx.count, end="\r")
 
     async def on_wait(ctx):
-        await asyncio.sleep(1)
+        await asyncio.sleep(0.5)
 
     def on_pause(ctx):
         print("pause")
@@ -708,17 +712,16 @@ async def main():
     h.set_on_tick(on_tick)
     #h.set_on_tick_after(dummy_handler)
     h.set_on_wait(on_wait)
-    h.set_on_pause(on_pause)
-    h.set_on_resume(on_resume)
-    h.set_on_end(on_end)
-    h.set_on_stop(on_stop)
-    h.set_on_handler_exception(on_handler_exception)
-    h.set_on_circuit_exception(on_circuit_exception)
-    h.set_on_result(on_result)
+    #h.set_on_pause(on_pause)
+    #h.set_on_resume(on_resume)
+    #h.set_on_end(on_end)
+    #h.set_on_stop(on_stop)
+    #h.set_on_handler_exception(on_handler_exception)
+    #h.set_on_circuit_exception(on_circuit_exception)
+    #h.set_on_result(on_result)
 
     # コンパイルしてcircuitコードの出力を確認
     h.compile()
-
     #loop_coro = h.ready()  # コルーチンを取得（まだ開始されていない）
     h.start()
 
@@ -739,10 +742,6 @@ async def main():
     #await task  # ループタスクの終了を待つ
 
     await asyncio.sleep(30)
-    h.pause()
-    await asyncio.sleep(10)
-    h.resume()
-    await asyncio.sleep(60)
 
     print("end")
 
