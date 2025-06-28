@@ -241,11 +241,10 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
             const.mode.PAUSE = PAUSE
             signals = SimpleNamespace()
             signals.Break = Break
-            _ctx_builder = _context_builder_factory(init, const, signals)
-            await _invoke_handler('on_start')
-            _
-            await _circuit(...) # この内部でwhile True:...
-            await _invoke_handler('on_end')
+            ctx_updater = _context_builder_factory(init, const, signals)
+            await _invoke_handler('on_start', ctx_updater)
+            await _circuit(ctx_updater) 
+            await _invoke_handler('on_end', ctx_updater)
         except asyncio.CancelledError as e:
             logger.info(f"[{role}] Loop was cancelled")
             await _invoke_handler('on_stop')
@@ -289,7 +288,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
 
     #asyncの場合、末尾スペースを忘れない->'async '
     _CIRCUIT_TEMPLATE = '''\
-    {async_}def {name}()
+    {async_}def {name}(ctx_updater)
         current = ''
         prev = ''
         result = None
@@ -368,11 +367,9 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
                 continue
             async_func = inspect.iscoroutinefunction(handler)
             includes_async_function |= async_func
-            pending_flags = ', pending_pause = _pending_pause, pending_resume = _pending_resume' if\
-                            pausable and detect_pause else ''
             invoking_parts[event] = _INVOKE_HANDLER_TEMPLATE.format(
                 event = event,
-                pending_flags = pending_flags,
+                ctx_update = f'ctx_updater({event})' if notify_ctx else '',
                 await_ = 'await ' if async_func else '',
             )
             ns_for_handlers[event] = handler
@@ -394,8 +391,13 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
         )
 
         namespace = {
-            'ctx_updater': context_updater,
-            'running': running,
+            'ctx_updater': ctx_updater,
+            'result_setter': result_setter,
+            'running_manager': running_manager,
+            'running_event': running_event,
+            'Break': break_exc,
+            'HandlerError': handler_err_exc,
+            'CircuitError': circuit_err_exc,
             **ns_for_handlers
         }
         exec(full_code, globals(), namespace)
@@ -425,8 +427,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
         nonlocal _state, _loop_task
         _check_state(LOAD, error_msg="start() must be called in LOAD state")
         _state = ACTIVE
-        revent_updater.set()
-        revent_updater.set()
+        running_event.set()
         _loop_task = asyncio.create_task(_loop_engine())
     
     def ready():
@@ -444,8 +445,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
         async def wrapped():
             nonlocal _state
             _state = ACTIVE
-            revent_updater.set()
-            revent_updater.set()
+            running_event.set()
             return await coro
 
         return wrapped()
