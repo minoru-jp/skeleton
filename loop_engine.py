@@ -644,13 +644,13 @@ async def dummy_handler(ctx):
     return None
 
 # 必須イベントハンドラを登録（circuitに入るものだけで十分）
-h.set_should_stop(dummy_handler)
-h.set_on_tick_before(dummy_handler)
+#h.set_should_stop(dummy_handler)
+#h.set_on_tick_before(dummy_handler)
 h.set_on_tick(dummy_handler)
-h.set_on_tick_after(dummy_handler)
-h.set_on_wait(dummy_handler)
-h.set_on_pause(dummy_handler)
-h.set_on_resume(dummy_handler)
+#h.set_on_tick_after(dummy_handler)
+#h.set_on_wait(dummy_handler)
+#h.set_on_pause(dummy_handler)
+#h.set_on_resume(dummy_handler)
 
 # コンパイルしてcircuitコードの出力を確認
 h.compile()
