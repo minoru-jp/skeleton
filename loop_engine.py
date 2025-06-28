@@ -399,10 +399,10 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
             )
             ns_for_handlers[event] = handler
         
-        pause_code = textwrap.indent(_PAUSABLE_TEMPLATE.format(
+        pause_code = _PAUSABLE_TEMPLATE.format(
             on_pause = invoking_parts.get('on_pause', ''),
             on_resume = invoking_parts.get('on_resume', '')
-        ), ' ' * 16) if pausable else ''
+        ) if pausable else ''
 
         full_code = textwrap.dedent(_CIRCUIT_TEMPLATE.format(
             async_ = 'async ' if includes_async_function else '',
