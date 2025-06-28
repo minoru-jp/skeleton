@@ -334,15 +334,13 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
 
     #Note: zero indent
     _PAUSABLE_TEMPLATE = textwrap.dedent('''\
-if running_manager.enter_if_pending_pause():
-{on_pause}
+if running_manager.enter_if_pending_pause():{on_pause}
     try:
         running_event.clear()
     except Exception as e:
         raise CircuitError(e)
 
-if running_manager.enter_if_pending_resume():
-{on_resume}
+if running_manager.enter_if_pending_resume():{on_resume}
     try:
         running_event.event.set()
     except Exception as e:
@@ -477,7 +475,7 @@ except Exception as e:
         result_setter=_result_setter,
         running_manager=_running_manager,
         running_event=_running_event,
-        pausable=False,
+        pausable=True,
         break_exc=Break,
         handler_err_exc=HandlerError,
         circuit_err_exc=CircuitError,
@@ -636,14 +634,17 @@ h = make_loop_engine_handle()
 async def dummy_handler(ctx):
     return None
 
+def dummy_handler_sync(ctx):
+    return None
+
 # 必須イベントハンドラを登録（circuitに入るものだけで十分）
 #h.set_should_stop(dummy_handler)
 #h.set_on_tick_before(dummy_handler)
-h.set_on_tick(dummy_handler)
+h.set_on_tick(dummy_handler_sync)
 #h.set_on_tick_after(dummy_handler)
 h.set_on_wait(dummy_handler)
-#h.set_on_pause(dummy_handler)
-#h.set_on_resume(dummy_handler)
+h.set_on_pause(dummy_handler)
+h.set_on_resume(dummy_handler_sync)
 
 # コンパイルしてcircuitコードの出力を確認
 h.compile()
