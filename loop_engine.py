@@ -83,6 +83,21 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
     
     _loop_task = None
 
+    # _context_builder is expected derives from a closure, like this
+    # def create_context_builder():
+    #    ctx = ...
+    #    def context_builder(event, **kwargs):
+    #        if event == 'init':
+    #            vars(ctx).update(kwargs)
+    #        elif event == 'on_start':
+    #            ...
+    #        elif ...
+    #        return ctx
+    #    return context_builder
+    _context_builder = lambda *a, **kw: None
+
+    _handlers = {}
+
     _meta = SimpleNamespace()
 
     def create_running_mode_some():
@@ -155,6 +170,9 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
                 RunningEventUpdater(),
                 RunningModeReader())
 
+    rmode_manager, rmode_setter, revent_updater, rmode_reader =\
+        create_running_mode_some()
+
     def create_result_chain_some():
 
         _prev_event = ''
@@ -186,22 +204,12 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
                 return _prev_result
         
         return ResultCleaner(), ResultSetter(), ResultReader()
-    
-    
-    # _context_builder is expected derives from a closure, like this
-    # def create_context_builder():
-    #    ctx = ...
-    #    def context_builder(event, **kwargs):
-    #        if event == 'init':
-    #            vars(ctx).update(kwargs)
-    #        elif event == 'on_start':
-    #            ...
-    #        elif ...
-    #        return ctx
-    #    return context_builder
-    _context_builder = lambda *a, **kw: None
 
-    _handlers = {}
+    result_cleaner, result_setter, result_reader = create_running_mode_some()
+
+    
+    
+
 
     class HandlerError(Exception):
         def __init__(self, event, exception):
@@ -209,99 +217,19 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
             self.event = event
             self.exception = exception
     
-    async def _invoke_exception_handler(event, e, **data):
-        nonlocal _prev_event, _prev_result
-        ex_event = event
-        ex_handler = _handlers[ex_event]
-        if ex_handler:
-            ctx = _context_builder(ex_event, e=e, **data)
-            tmp = ex_handler(ctx)
-            result = await tmp if inspect.isawaitable(tmp) else tmp
-            _prev_event = ex_event
-            _prev_result = result
-            return result
-    
-    def _default_handler(ctx):
+    class Break(Exception):
         pass
-
-    async def _invoke_handler(event, **data):
-        handler = _handlers.get(event, _default_handler)
-        return _invoke_specified_handler(event, handler, **data)
-
-    async def _invoke_async_handler(event, handler, **data):
-        nonlocal _state, _prev_event, _prev_result
-        try:
-            ctx = _context_builder(
-                event,
-                prev_event = _prev_event,
-                prev_result = _prev_result,
-                pending_pause = _pending_pause,
-                pending_resume = _pending_resume,
-                **data
-            )
-            result = await handler(ctx)
-            _prev_event = event
-            _prev_result = result
-            return result
-        except Exception as e:
-            logger.exception(f"[{role}] Handler {event} failed")
-            _broken = True
-            try:
-                _invoke_exception_handler(
-                    'on_handler_exception', e, failed = event)
-            except Exception as nested_e:
-                logger.exception(f"[{role}] Handler exception handler itself failed")
-                raise nested_e from e
-            raise
     
-    async def _invoke_sync_handler(event, handler, **data):
-        nonlocal _state, _prev_event, _prev_result
-        try:
-            ctx = _context_builder(
-                event,
-                prev_event = _prev_event,
-                prev_result = _prev_result,
-                pending_pause = _pending_pause,
-                pending_resume = _pending_resume,
-                **data
-            )
-            result = handler(ctx)
-            _prev_event = event
-            _prev_result = result
-            return result
-        except Exception as e:
-            logger.exception(f"[{role}] Handler {event} failed")
-            _broken = True
-            try:
-                _invoke_exception_handler(
-                    'on_handler_exception', e, failed = event)
-            except Exception as nested_e:
-                logger.exception(f"[{role}] Handler exception handler itself failed")
-                raise nested_e from e
-            raise
-    
-    async def _resolve_pause_resume():
-        nonlocal _mode, _pending_pause, _pending_resume
-        if _pending_pause:
-            _pending_pause = False
-            await _invoke_handler('on_pause')
-            _mode = PAUSE
-            _running.clear()
-        if _pending_resume:
-            _pending_resume = False
-            _mode = RUNNING
-            await _invoke_handler('on_resume')
-            _running.set()
     
     async def _loop_engine():
-        nonlocal _state, _prev_event, _prev_result, _loop_task, _meta
         try:
             _ = _context_builder(
                 'init',
                 role = role,
                 LOAD = LOAD, ACTIVE = ACTIVE,
                 CLOSED = CLOSED, UNCLEAN = UNCLEAN,
-                RUNNING = RUNNING, PAUSE = PAUSE)
+                RUNNING = RUNNING, PAUSE = PAUSE,
+                Break = Break)
             await _invoke_handler('on_start')
             await _circuit(...) # この内部でwhile True:...
             await _invoke_handler('on_end')
@@ -453,68 +381,6 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
         return namespace[circuit_name], full_code
 
 
-
-    async def _loop_engine():
-        nonlocal _state, _prev_event, _prev_result, _loop_task, _meta
-        try:
-            _ = _context_builder(
-                'init',
-                role = role,
-                LOAD = LOAD, ACTIVE = ACTIVE,
-                CLOSED = CLOSED, UNCLEAN = UNCLEAN,
-                RUNNING = RUNNING, PAUSE = PAUSE)
-            await _invoke_handler('on_start')
-            while True:
-                if await _invoke_handler('should_stop'):
-                    break
-                await _invoke_handler('on_tick_before')
-                await _invoke_handler('on_tick')
-                await _invoke_handler('on_tick_after')
-                await _invoke_handler('on_wait')
-                await _resolve_pause_resume()
-                await _running.wait()
-            await _invoke_handler('on_end')
-        except asyncio.CancelledError as e:
-            logger.info(f"[{role}] Loop was cancelled")
-            await _invoke_handler('on_stop')
-        except HandlerError as e:
-            event = e.event
-            orig_e = e.exception
-            logger.exception(f"[{role}] {event} Handler failed")
-            try:
-                _invoke_exception_handler('on_handler_exception', e)
-            except Exception as nested_e:
-                raise nested_e from e
-            raise orig_e from None
-        except Exception as e:
-            logger.exception(f"[{role}] Unknown exception in circuit")
-            try:
-                _invoke_exception_handler('on_circuit_exception', e)
-            except Exception as nested_e:
-                raise nested_e from e
-            raise
-        finally:
-            try:
-                await _invoke_handler(
-                    'on_closed',
-                    state = _state,
-                    mode = _mode,
-                    loop_task = _loop_task)
-                _state = CLOSED
-            except Exception:
-                _state = UNCLEAN
-            try:
-                return await _invoke_handler(
-                    'on_result', state = _state, mode = _mode)
-            except Exception:
-                return NO_RESULT
-            finally:
-                _context_builder = None
-                _handlers.clear()
-                _prev_result = None
-                _loop_task = None
-                _meta = None
-
     def _check_state(*expected: int, error_msg: str, notify_closed: bool = True) -> None:
         if _state in expected:
             return
@@ -524,7 +390,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
         raise HandleStateError(err_log)
     
     def _check_mode(*expected: int, error_msg: str) -> None:
-        if _mode in expected:
+        if rmode_reader.get_mode() in expected:
             return
         raise HandleStateError(f"{error_msg} (expected = {expected}, actual = {_mode})")
     
@@ -538,7 +404,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
         nonlocal _state, _loop_task
         _check_state(LOAD, error_msg="start() must be called in LOAD state")
         _state = ACTIVE
-        _running.set()
+        revent_updater.set()
         _loop_task = asyncio.create_task(_loop_engine())
     
     def ready():
@@ -556,7 +422,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
         async def wrapped():
             nonlocal _state
             _state = ACTIVE
-            _running.set()
+            revent_updater.set()
             return await coro
 
         return wrapped()
@@ -567,16 +433,14 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
             _loop_task.cancel()
     
     def pause():
-        nonlocal _pending_pause
         _check_state(ACTIVE, error_msg="pause() only allowed in ACTIVE")
         _check_mode(RUNNING, error_msg="pause() only allowed from RUNNING")
-        _pending_pause = True
+        rmode_setter.set_pause()
 
     def resume():
-        nonlocal _pending_resume
         _check_state(ACTIVE, error_msg="resume() only allowed in ACTIVE")
         _check_mode(PAUSE, error_msg="resume() only allowed from PAUSE")
-        _pending_resume = True
+        rmode_setter.set_pause()
 
     # --- explicit handler setters ---
 
