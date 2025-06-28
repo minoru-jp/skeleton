@@ -115,6 +115,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
     def dummy_context_updater_factory(env):
         ctx = SimpleNamespace()
         ctx.count = 0
+        ctx.env = env
         def context_updater(event):
             if event == 'on_tick':
                 ctx.count += 1
@@ -283,7 +284,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
             await _invoke_handler('on_end', ctx_updater, ctx)
         except asyncio.CancelledError as e:
             logger.info(f"[{role}] Loop was cancelled")
-            await _invoke_handler('on_stop')
+            await _invoke_handler('on_stop', ctx_updater, ctx)
         except HandlerError as e:
             event = e.event
             orig_e = e.orig_exception
@@ -291,7 +292,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
             env.exc = e
             logger.exception(f"[{role}] {event} Handler failed")
             try:
-                _invoke_handler('on_handler_exception')
+                _invoke_handler('on_handler_exception', ctx_updater, ctx)
             except Exception as nested_e:
                 raise nested_e from e
             raise orig_e from None
@@ -300,19 +301,19 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
             env.exc = e
             logger.exception(f"[{role}] Unknown exception in circuit")
             try:
-                _invoke_handler('on_circuit_exception')
+                _invoke_handler('on_circuit_exception', ctx_updater, ctx)
             except Exception as nested_e:
                 raise nested_e from e
             raise
         finally:
             try:
-                await _invoke_handler('on_closed')
+                await _invoke_handler('on_closed', ctx_updater, ctx)
                 _state = CLOSED
             except Exception:
                 _state = UNCLEAN
                 env.state = _state
             try:
-                return await _invoke_handler('on_result')
+                return await _invoke_handler('on_result', ctx_updater, ctx)
             except Exception:
                 return NO_RESULT
             finally:
@@ -501,6 +502,9 @@ except Exception as e:
 
     def stop():
         _check_state(ACTIVE, error_msg="stop() must be called in ACTIVE state")
+        if not _loop_task:
+            raise RuntimeError("Cannot call stop(): loop started via ready()"
+                               "and is not externally controllable")
         if _loop_task and not _loop_task.done():
             _loop_task.cancel()
     
@@ -668,6 +672,12 @@ async def main():
     def on_resume(ctx):
         print("resume!")
 
+    def on_handler_exception(ctx):
+        print(ctx.env.exc)
+    
+    def on_circuit_exception(ctx):
+        print(ctx.env.exc)
+    
     # 必須イベントハンドラを登録（circuitに入るものだけで十分）
     #h.set_should_stop(dummy_handler)
     #h.set_on_tick_before(dummy_handler)
@@ -676,6 +686,8 @@ async def main():
     h.set_on_wait(on_wait)
     h.set_on_pause(on_pause)
     h.set_on_resume(on_resume)
+    h.set_on_handler_exception(on_handler_exception)
+    h.set_on_circuit_exception(on_circuit_exception)
 
     # コンパイルしてcircuitコードの出力を確認
     h.compile()
@@ -686,7 +698,7 @@ async def main():
     task = asyncio.create_task(loop_coro)
 
     # 1分間だけ実行し、途中で pause/resume をランダムに実行
-    end_time = datetime.now() + timedelta(seconds=60)
+    end_time = datetime.now() + timedelta(seconds=10)
     while datetime.now() < end_time:
         await asyncio.sleep(random.uniform(5, 10))  # 5〜10秒おきに発火
         h.pause()
@@ -694,9 +706,11 @@ async def main():
         h.resume()
 
     # 最後にループを止める（任意で明示）
-    h.stop()
+    task.cancel()
 
     await task  # ループタスクの終了を待つ
+
+    print("end")
 
 # 実行
 asyncio.run(main())
