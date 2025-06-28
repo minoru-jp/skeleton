@@ -312,7 +312,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
 
     #asyncの場合、末尾スペースを忘れない->'async '
     _CIRCUIT_TEMPLATE = '''\
-    {async_}def {name}(ctx_updater, ctx)
+    {async_}def {name}(ctx_updater, ctx):
         current = ''
         prev = ''
         result = None
@@ -610,6 +610,8 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
     handle.stop = stop
     handle.pause = pause
     handle.resume = resume
+
+    handle.compile = compile
 
     handle.set_on_start = set_on_start
     handle.set_on_pause = set_on_pause
