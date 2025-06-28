@@ -35,7 +35,7 @@ class LoopEngineHandleProtocol(Protocol):
     def set_on_wait(self, fn: _Handler) -> None: ...
     def set_on_handler_exception(self, fn: _Handler) -> None: ...
     def set_on_circuit_exception(self, fn: _Handler) -> None: ...
-    def set_context_builder(self, fn: Callable[..., Any]) -> None: ...
+    def set_context_builder_factory(self, fn: Callable[..., Any]) -> None: ...
 
     # --- メタ・属性 ---
     @property
@@ -183,7 +183,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
                 RunningEvent(),
                 RunningModeReader())
 
-    running_manager, running_setter, running_event, running_reader =\
+    _running_manager, _running_setter, _running_event, _running_reader =\
         create_running_mode_some()
 
     def create_result_chain_some():
@@ -218,7 +218,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
         
         return ResultCleaner(), ResultSetter(), ResultReader()
 
-    result_cleaner, result_setter, result_reader = create_result_chain_some()
+    _result_cleaner, _result_setter, _result_reader = create_result_chain_some()
 
 
     _meta = SimpleNamespace()
@@ -232,7 +232,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
         try:
             tmp = handler(ctx)
             result = await tmp if inspect.isawaitable(tmp) else tmp
-            result_setter.set_prev(event, result)
+            _result_setter.set_prev(event, result)
         except Exception as e:
             raise HandlerError(event, e)
 
@@ -255,8 +255,8 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
         env.signal = SimpleNamespace()
         env.signal.Break = Break
         env.loop_task = None
-        env.result_reader = result_reader
-        env.mode_reader = running_reader
+        env.result_reader = _result_reader
+        env.mode_reader = _running_reader
         env.state = ACTIVE
         env.exc = None
         return env
@@ -305,14 +305,14 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
             except Exception:
                 return NO_RESULT
             finally:
-                result_cleaner.clean()
+                _result_cleaner.clean()
                 _handlers.clear()
                 _loop_task = None
                 _meta = None
 
     #asyncの場合、末尾スペースを忘れない->'async '
     _CIRCUIT_TEMPLATE = '''\
-    {async_}def {name}(ctx_updater)
+    {async_}def {name}(ctx_updater, ctx)
         current = ''
         prev = ''
         result = None
@@ -372,7 +372,6 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
     def _compile_circuit(
         circuit_name: str,
         handlers: dict[str: callable],
-        ctx_updater,
         notify_ctx: bool,
         result_setter,
         running_manager,
@@ -414,7 +413,6 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
         ))
 
         namespace = {
-            'ctx_updater': ctx_updater,
             'result_setter': result_setter,
             'running_manager': running_manager,
             'running_event': running_event,
@@ -436,7 +434,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
         raise HandleStateError(err_log)
     
     def _check_mode(*expected: int, error_msg: str) -> None:
-        if running_reader.get_mode() in expected:
+        if _running_reader.get_mode() in expected:
             return
         raise HandleStateError(f"{error_msg} (expected = {expected}, actual = {_mode})")
     
@@ -450,7 +448,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
         nonlocal _state, _loop_task
         _check_state(LOAD, error_msg="start() must be called in LOAD state")
         _state = ACTIVE
-        running_event.set()
+        _running_event.set()
         _loop_task = asyncio.create_task(_loop_engine())
     
     def ready():
@@ -468,10 +466,26 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
         async def wrapped():
             nonlocal _state
             _state = ACTIVE
-            running_event.set()
+            _running_event.set()
             return await coro
 
         return wrapped()
+
+    def compile():
+        _check_state(LOAD, error_msg="compile() must be called in LOAD state")
+        _circuit, _circuit_code = _compile_circuit(
+        circuit_name='_circuit',
+        handlers=_handlers,
+        notify_ctx=True,
+        result_setter=_result_setter,
+        running_manager=_running_manager,
+        running_event=_running_event,
+        pausable=True,
+        break_exc=Break,
+        handler_err_exc=HandlerError,
+        circuit_err_exc=CircuitError,
+        )
+        print(_circuit_code)
 
     def stop():
         _check_state(ACTIVE, error_msg="stop() must be called in ACTIVE state")
@@ -481,12 +495,12 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
     def pause():
         _check_state(ACTIVE, error_msg="pause() only allowed in ACTIVE")
         _check_mode(RUNNING, error_msg="pause() only allowed from RUNNING")
-        running_setter.set_pause()
+        _running_setter.set_pause()
 
     def resume():
         _check_state(ACTIVE, error_msg="resume() only allowed in ACTIVE")
         _check_mode(PAUSE, error_msg="resume() only allowed from PAUSE")
-        running_setter.set_pause()
+        _running_setter.set_resume()
 
     # --- explicit handler setters ---
 
@@ -618,3 +632,19 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
 
 
 h = make_loop_engine_handle()
+
+# 適当なハンドラ（中身は何でもよい）
+async def dummy_handler(ctx):
+    return None
+
+# 必須イベントハンドラを登録（circuitに入るものだけで十分）
+h.set_should_stop(dummy_handler)
+h.set_on_tick_before(dummy_handler)
+h.set_on_tick(dummy_handler)
+h.set_on_tick_after(dummy_handler)
+h.set_on_wait(dummy_handler)
+h.set_on_pause(dummy_handler)
+h.set_on_resume(dummy_handler)
+
+# コンパイルしてcircuitコードの出力を確認
+h.compile()
