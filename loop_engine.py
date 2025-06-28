@@ -312,23 +312,23 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
 
     #asyncの場合、末尾スペースを忘れない->'async '
     _CIRCUIT_TEMPLATE = '''\
-    {async_}def {name}(ctx_updater, ctx):
-        current = ''
-        result = None
-        try:
-            while True:
+{async_}def {name}(ctx_updater, ctx):
+    current = ''
+    result = None
+    try:
+        while True:
 {should_stop}
 {on_tick_before}
 {on_tick}
 {on_tick_after}
 {on_wait}
 {pause_resume}
-        except Break as e:
-            pass
-        except CircuitError as e:
-            raise e.orig_exception
-        except Exception as e:
-            raise HandlerError(current, e)
+    except Break as e:
+        pass
+    except CircuitError as e:
+        raise e.orig_exception
+    except Exception as e:
+        raise HandlerError(current, e)
     '''
 
     #Note: zero indent
@@ -395,14 +395,14 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
                 ctx_update = f'ctx_updater("{event}")' if notify_ctx else '',
                 await_ = 'await ' if async_func else '',
             ),
-            ' ' * 16
+            ' ' * 8
             )
             ns_for_handlers[event] = handler
         
-        pause_code = _PAUSABLE_TEMPLATE.format(
+        pause_code = textwrap.indent(_PAUSABLE_TEMPLATE.format(
             on_pause = invoking_parts.get('on_pause', ''),
             on_resume = invoking_parts.get('on_resume', '')
-        ) if pausable else ''
+        ), ' ' * 4) if pausable else ''
 
         full_code = textwrap.dedent(_CIRCUIT_TEMPLATE.format(
             async_ = 'async ' if includes_async_function else '',
