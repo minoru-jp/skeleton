@@ -341,23 +341,23 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
 
     #Note: zero indent
     _PAUSABLE_TEMPLATE = textwrap.dedent('''\
-    if running_manager.enter_if_pending_pause():
-        {on_pause}
-        try:
-            running_event.clear()
-        except Exception as e:
-            raise CircuitError(e)
-
-    if running_manager.enter_if_pending_resume():
-        {on_resume}
-        try:
-            running_event.event.set()
-        except Exception as e:
-            raise CircuitError(e)
+if running_manager.enter_if_pending_pause():
+{on_pause}
     try:
-        await running_event.wait()
+        running_event.clear()
     except Exception as e:
         raise CircuitError(e)
+
+if running_manager.enter_if_pending_resume():
+{on_resume}
+    try:
+        running_event.event.set()
+    except Exception as e:
+        raise CircuitError(e)
+try:
+    await running_event.wait()
+except Exception as e:
+    raise CircuitError(e)
     ''')
 
     HANDLER_IN_CIRCUIT = {
@@ -395,14 +395,14 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
                 ctx_update = f'ctx_updater("{event}")' if notify_ctx else '',
                 await_ = 'await ' if async_func else '',
             ),
-            ' ' * 8
+            ' ' * (12 if event not in ('on_pause', 'on_resume') else 4)
             )
             ns_for_handlers[event] = handler
         
         pause_code = textwrap.indent(_PAUSABLE_TEMPLATE.format(
             on_pause = invoking_parts.get('on_pause', ''),
             on_resume = invoking_parts.get('on_resume', '')
-        ), ' ' * 4) if pausable else ''
+        ),' ' * 12) if pausable else ''
 
         full_code = textwrap.dedent(_CIRCUIT_TEMPLATE.format(
             async_ = 'async ' if includes_async_function else '',
