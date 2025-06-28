@@ -364,10 +364,7 @@ if running_manager.enter_if_pending_pause():{on_pause}
         raise CircuitError(e)
 
 if running_manager.enter_if_pending_resume():{on_resume}
-    try:
-        running_event.set()
-    except Exception as e:
-        raise CircuitError(e)
+    pass
 try:
     await running_event.wait()
 except Exception as e:
@@ -672,14 +669,13 @@ async def main():
     h = make_loop_engine_handle()
 
     def should_stop(ctx):
-        if ctx.count >= 100:
+        if ctx.count >= 1000:
             raise ctx.env.signal.Break
 
     def on_tick(ctx):
         print(f"tick{('!' * ctx.count)}")
 
     async def on_wait(ctx):
-        print("wait a second")
         await asyncio.sleep(1)
 
     def on_pause(ctx):
@@ -742,11 +738,11 @@ async def main():
 
     #await task  # ループタスクの終了を待つ
 
-    await asyncio.sleep(10)
+    await asyncio.sleep(30)
     h.pause()
-    await asyncio.sleep(5)
+    await asyncio.sleep(10)
     h.resume()
-    await asyncio.sleep(20)
+    await asyncio.sleep(60)
 
     print("end")
 
