@@ -111,7 +111,16 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
     #        elif ...
     #        return ctx
     #    return context_builder
-    _context_updater_factory = lambda *a, **kw: None
+
+    def dummy_context_updater_factory(env):
+        ctx = SimpleNamespace()
+        ctx.count = 0
+        def context_updater(event):
+            if event == 'on_tick':
+                ctx.count += 1
+            return ctx
+        return context_updater
+    _context_updater_factory = dummy_context_updater_factory
 
     _handlers = {}
 
@@ -641,7 +650,7 @@ async def main():
     h = make_loop_engine_handle()
 
     def on_tick(ctx):
-        print("tick!")
+        print(f"tick{('!' * ctx.count)}")
 
     async def on_wait(ctx):
         print("wait a second")
