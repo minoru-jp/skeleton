@@ -109,7 +109,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
     #        elif ...
     #        return ctx
     #    return context_builder
-    _context_builder_factory = lambda *a, **kw: None
+    _context_updater_factory = lambda *a, **kw: None
 
     _handlers = {}
 
@@ -222,27 +222,59 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
 
 
     _meta = SimpleNamespace()
+
+
+    async def _invoke_handler(event, ctx_updater, ctx, rs_setter):
+        handler = _handlers.get(event, None)
+        if not handler:
+            return
+        ctx_updater(event)
+        try:
+            tmp = handler(ctx)
+            result = await tmp if inspect.isawaitable(tmp) else tmp
+            rs_setter.set_prev(event, result)
+        except Exception as e:
+            raise HandlerError(event, e)
     
+    async def _invoke_exception_handler(event, e, ctx_updater, ctx, rs_setter):
+        handler = _handlers.get(event, None)
+        if not handler:
+            return
+        ctx_updater(event)
+        try:
+            tmp = handler(ctx)
+            result = await tmp if inspect.isawaitable(tmp) else tmp
+            rs_setter.set_prev(event, result)
+        except Exception as e:
+            raise HandlerError(event, e)
+
+    def _create_loop_environment():
+        env = SimpleNamespace()
+        env.init = SimpleNamespace()
+        env.init.role = role
+        env.const = SimpleNamespace()
+        env.const.states = SimpleNamespace()
+        env.const.states.LOAD = LOAD
+        env.const.states.ACTIVE = ACTIVE
+        env.const.states.CLOSED = CLOSED
+        env.const.states.UNCLEAN = UNCLEAN
+        env.const.mode = SimpleNamespace()
+        env.const.mode.RUNNING = RUNNING
+        env.const.mode.PAUSE = PAUSE
+        env.signal = SimpleNamespace()
+        env.signal.Break = Break
+        env.result_reader = result_reader
+        env.exc = None
+        return env
+
     async def _loop_engine():
         try:
-            init = SimpleNamespace()
-            init.role = role
-            result_reader = result_reader
-            const = SimpleNamespace()
-            const.states = SimpleNamespace()
-            const.states.LOAD = LOAD
-            const.states.ACTIVE = ACTIVE
-            const.states.CLOSED = CLOSED
-            const.states.UNCLEAN = UNCLEAN
-            const.mode = SimpleNamespace()
-            const.mode.RUNNING = RUNNING
-            const.mode.PAUSE = PAUSE
-            signals = SimpleNamespace()
-            signals.Break = Break
-            ctx_updater = _context_builder_factory(init, const, signals)
-            await _invoke_handler('on_start', ctx_updater)
-            await _circuit(ctx_updater) 
-            await _invoke_handler('on_end', ctx_updater)
+            env = _create_loop_environment()
+            ctx_updater = _context_updater_factory(env)
+            ctx = ctx_updater('get')
+            await _invoke_handler('on_start', ctx_updater, ctx)
+            await _circuit(ctx_updater, ctx)
+            await _invoke_handler('on_end', ctx_updater, ctx)
         except asyncio.CancelledError as e:
             logger.info(f"[{role}] Loop was cancelled")
             await _invoke_handler('on_stop')
@@ -526,9 +558,9 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
         _handlers["on_result"] = fn
     
     def set_context_builder_factory(fn):
-        nonlocal _context_builder_factory
+        nonlocal _context_updater_factory
         _check_state_is_load_for_setter(set_context_builder_factory)
-        _context_builder_factory = fn
+        _context_updater_factory = fn
     
 
 
