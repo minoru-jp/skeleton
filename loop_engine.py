@@ -417,6 +417,8 @@ except Exception as e:
             pause_resume = pause_code
         ))
 
+        
+
         namespace = {
             'result_setter': result_setter,
             'running_manager': running_manager,
@@ -426,8 +428,12 @@ except Exception as e:
             'CircuitError': circuit_err_exc,
             **ns_for_handlers
         }
-        exec(full_code, globals(), namespace)
-        return namespace[circuit_name], full_code
+        # print("=======================================================")
+        # print(namespace)
+        # print("=======================================================")
+        dst = {}
+        exec(full_code, namespace, dst)
+        return dst[circuit_name], full_code
 
 
     def _check_state(*expected: int, error_msg: str, notify_closed: bool = True) -> None:
