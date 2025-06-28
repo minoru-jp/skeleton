@@ -660,7 +660,7 @@ async def main():
 
     async def on_wait(ctx):
         print("wait a second")
-        asyncio.sleep(1)
+        await asyncio.sleep(1)
 
     def on_pause(ctx):
         print("pause")
