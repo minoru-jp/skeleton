@@ -316,13 +316,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
     current = ''
     result = None
     try:
-        while True:
-{should_stop}
-{on_tick_before}
-{on_tick}
-{on_tick_after}
-{on_wait}
-{pause_resume}
+        while True:{should_stop}{on_tick_before}{on_tick}{on_tick_after}{on_wait}{pause_resume}
     except Break as e:
         pass
     except CircuitError as e:
@@ -333,8 +327,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
 
     #Note: zero indent
     _INVOKE_HANDLER_TEMPLATE = textwrap.dedent('''\
-    current = '{event}'
-    {ctx_update}
+    current = '{event}'{ctx_update}
     result = {await_}{event}(ctx)
     result_setter.set_prev(current, result)
     ''')
@@ -390,9 +383,9 @@ except Exception as e:
                 continue
             async_func = inspect.iscoroutinefunction(handler)
             includes_async_function |= async_func
-            invoking_parts[event] = textwrap.indent(_INVOKE_HANDLER_TEMPLATE.format(
+            invoking_parts[event] = textwrap.indent("\n" + _INVOKE_HANDLER_TEMPLATE.format(
                 event = event,
-                ctx_update = f'ctx_updater("{event}")' if notify_ctx else '',
+                ctx_update = "\n" + f'ctx_updater("{event}")' if notify_ctx else '',
                 await_ = 'await ' if async_func else '',
             ),
             ' ' * (12 if event not in ('on_pause', 'on_resume') else 4)
@@ -484,7 +477,7 @@ except Exception as e:
         result_setter=_result_setter,
         running_manager=_running_manager,
         running_event=_running_event,
-        pausable=True,
+        pausable=False,
         break_exc=Break,
         handler_err_exc=HandlerError,
         circuit_err_exc=CircuitError,
@@ -648,7 +641,7 @@ async def dummy_handler(ctx):
 #h.set_on_tick_before(dummy_handler)
 h.set_on_tick(dummy_handler)
 #h.set_on_tick_after(dummy_handler)
-#h.set_on_wait(dummy_handler)
+h.set_on_wait(dummy_handler)
 #h.set_on_pause(dummy_handler)
 #h.set_on_resume(dummy_handler)
 
