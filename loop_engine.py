@@ -314,16 +314,15 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
     _CIRCUIT_TEMPLATE = '''\
     {async_}def {name}(ctx_updater, ctx):
         current = ''
-        prev = ''
         result = None
         try:
             while True:
-                {should_stop}
-                {on_tick_before}
-                {on_tick}
-                {on_tick_after}
-                {on_wait}
-                {pause_resume}
+{should_stop}
+{on_tick_before}
+{on_tick}
+{on_tick_after}
+{on_wait}
+{pause_resume}
         except Break as e:
             pass
         except CircuitError as e:
