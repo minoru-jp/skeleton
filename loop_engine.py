@@ -688,6 +688,9 @@ async def main():
     def on_resume(ctx):
         print("resume!")
     
+    def on_end(ctx):
+        print("end!")
+    
     def on_stop(ctx):
         print("stop!")
 
@@ -711,6 +714,7 @@ async def main():
     h.set_on_wait(on_wait)
     h.set_on_pause(on_pause)
     h.set_on_resume(on_resume)
+    h.set_on_end(on_end)
     h.set_on_stop(on_stop)
     h.set_on_handler_exception(on_handler_exception)
     h.set_on_circuit_exception(on_circuit_exception)
@@ -719,23 +723,26 @@ async def main():
     # コンパイルしてcircuitコードの出力を確認
     h.compile()
 
-    loop_coro = h.ready()  # コルーチンを取得（まだ開始されていない）
+    #loop_coro = h.ready()  # コルーチンを取得（まだ開始されていない）
+    h.start()
 
-    # 別タスクとしてループ起動
-    task = asyncio.create_task(loop_coro)
+    # # 別タスクとしてループ起動
+    # task = asyncio.create_task(loop_coro)
 
-    # 1分間だけ実行し、途中で pause/resume をランダムに実行
-    end_time = datetime.now() + timedelta(seconds=20)
-    while datetime.now() < end_time:
-        await asyncio.sleep(random.uniform(5, 10))  # 5〜10秒おきに発火
-        h.pause()
-        await asyncio.sleep(random.uniform(2, 4))  # 少し停止してから
-        h.resume()
+    # # 1分間だけ実行し、途中で pause/resume をランダムに実行
+    # end_time = datetime.now() + timedelta(seconds=20)
+    # while datetime.now() < end_time:
+    #     await asyncio.sleep(random.uniform(5, 10))  # 5〜10秒おきに発火
+    #     h.pause()
+    #     await asyncio.sleep(random.uniform(2, 4))  # 少し停止してから
+    #     h.resume()
 
-    # 最後にループを止める（任意で明示）
-    task.cancel()
+    # # 最後にループを止める（任意で明示）
+    # task.cancel()
 
-    await task  # ループタスクの終了を待つ
+    #await task  # ループタスクの終了を待つ
+
+    await asyncio.sleep(15)
 
     print("end")
 
