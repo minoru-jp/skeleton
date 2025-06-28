@@ -421,8 +421,9 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
             'CircuitError': circuit_err_exc,
             **ns_for_handlers
         }
-        exec(full_code, globals(), namespace)
-        return namespace[circuit_name], full_code
+        #exec(full_code, globals(), namespace)
+        #return namespace[circuit_name], full_code
+        return full_code
 
 
     def _check_state(*expected: int, error_msg: str, notify_closed: bool = True) -> None:
@@ -473,7 +474,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
 
     def compile():
         _check_state(LOAD, error_msg="compile() must be called in LOAD state")
-        _circuit, _circuit_code = _compile_circuit(
+        _circuit_code = _compile_circuit(
         circuit_name='_circuit',
         handlers=_handlers,
         notify_ctx=True,
