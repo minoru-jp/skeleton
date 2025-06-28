@@ -161,14 +161,13 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
             @staticmethod
             def set_pause():
                 nonlocal _mode, _pending_pause
-                _mode = PAUSE
                 _pending_pause = True
             @staticmethod
             def set_resume():
                 print("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
                 nonlocal _mode, _pending_resume
-                _mode = RUNNING
                 _pending_resume = True
+                _event.set()
         
         class RunningEvent:
             __slots__ = ()
@@ -458,9 +457,10 @@ except Exception as e:
         raise HandleStateError(err_log)
     
     def _check_mode(*expected: int, error_msg: str) -> None:
-        if _running_reader.get_mode() in expected:
+        mode = _running_reader.get_mode()
+        if mode in expected:
             return
-        raise HandleStateError(f"{error_msg} (expected = {expected}, actual = {_mode})")
+        raise HandleStateError(f"{error_msg} (expected = {expected}, actual = {mode})")
     
 
     def start():
@@ -672,7 +672,7 @@ async def main():
     h = make_loop_engine_handle()
 
     def should_stop(ctx):
-        if ctx.count >= 10:
+        if ctx.count >= 100:
             raise ctx.env.signal.Break
 
     def on_tick(ctx):
@@ -742,7 +742,11 @@ async def main():
 
     #await task  # ループタスクの終了を待つ
 
-    await asyncio.sleep(15)
+    await asyncio.sleep(10)
+    h.pause()
+    await asyncio.sleep(5)
+    h.resume()
+    await asyncio.sleep(20)
 
     print("end")
 
