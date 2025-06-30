@@ -203,6 +203,12 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
 
     def _load_loop_environment(state_, injected_hook, circuit_factory):
 
+        # Each handler's return value is always updated via _result_bridge.set_prev.
+        # Therefore, if a specific handler depends on the return value from another,
+        # all intermediate handlers must propagate the return value properly.
+        # In particular, be careful with on_pause and on_resume,
+        # as they may not be called in a strictly linear sequence.
+
         RUNNING = 10 # Sub-state of ACTIVE commute to PAUSE
         PAUSE = 11 # Sub-state of ACTIVE commute to RUNNING
 
@@ -439,6 +445,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
             finally:
                 # Currently, exceptions raised from on_closed or on_result are not handled.
                 # Consider whether to introduce explicit handlers or allow propagation.
+                # Additional note: Exceptions thrown by these two are not captured in _exc.
                 try:
                     await _invoke_handler('on_closed', ctx_updater, ctx)
                     state_.transit_state(state_.CLOSED)
