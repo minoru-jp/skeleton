@@ -521,7 +521,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
             "        raise HandlerError(current, e)",
         ]
 
-        _EVENT_IN_CIRCUIT_INDENT = 8
+        _EVENT_IN_CIRCUIT_INDENT = 12
         
         _INVOKE_HANDLER_TEMPLATE = [
             ("current = '{}'", 'current_event'),
@@ -547,7 +547,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
             "    raise CircuitError(e)",
         ]
 
-        _EVENT_IN_PAUSABLE_INDENT = 4
+        _EVENT_IN_PAUSABLE_INDENT = 8
 
         _HANDLER_IN_CIRCUIT = {
             'should_stop',
