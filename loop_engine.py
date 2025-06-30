@@ -195,13 +195,13 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
                 state.maintain_state(state.LOAD, fn)
 
             @staticmethod
-            def cirucit_is_pausable():
+            def circuit_is_pausable():
                 return _pausable
         
         return InjectedHook()
 
 
-    def _load_loop_environment(state_, injected_hook, circuit_factory):
+    def _load_loop_environment(state_, injected_hook):
 
         # Each handler's return value is always updated via _result_bridge.set_prev.
         # Therefore, if a specific handler depends on the return value from another,
@@ -602,7 +602,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
             @staticmethod
             def _build_pausable(handler_snippets):
                 def _tag_processor(lines, code, tag):
-                    INDENT = _EVENT_IN_PAUSABLE_INDENT
+                    INDENT = ' ' * _EVENT_IN_PAUSABLE_INDENT
                     match(tag):
                         case _:
                             snip = handler_snippets.get(tag, None)
@@ -613,10 +613,13 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
                     _PAUSABLE_TEMPLATE, _tag_processor)
             
             @staticmethod
-            def _build_circuit(handler_snippets, pausable_snippet):
+            def _build_circuit(name, as_async, handler_snippets, pausable_snippet):
                 def _tag_processor(lines, code, tag):
-                    INDENT = _EVENT_IN_CIRCUIT_INDENT
+                    INDENT = ' ' * _EVENT_IN_CIRCUIT_INDENT
                     match(tag):
+                        case 'define':
+                            prefix = 'async ' if as_async else ''
+                            lines.append(code.format(prefix, name))
                         case 'pausable':
                             if pausable_snippet:
                                 lines.extend(INDENT + p for p in pausable_snippet)
@@ -650,6 +653,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
                 ) if injected_hook.circuit_is_pausable else None
 
                 all_snippets = CircuitFactory._build_circuit(
+                    name, includes_async_function,
                     handler_snippets, pausable_snippet
                 )
 
@@ -689,7 +693,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
 
     _state = _load_state()
     _injected_hook = _load_injected_hook(_state)
-    _loop_environment = _load_loop_environment(_state)
+    _loop_environment = _load_loop_environment(_state, _injected_hook)
 
     _circuit = locals().get(STATIC_CIRCUIT_NAME, None)
     if not _circuit:
