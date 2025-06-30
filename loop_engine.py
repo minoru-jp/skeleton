@@ -629,7 +629,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
                 _CIRCUIT_TEMPLATE, _tag_processor)
 
             @staticmethod
-            def generate_circuit_full_code(name):
+            def build_circuit_full_code(name):
                 nonlocal _circuit_full_code
                 includes_async_function = False
                 handler_snippets = {}
@@ -661,7 +661,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
                 nonlocal _generated_circuit
                 CIRCUIT_NAME = '_circuit'
                 if not _circuit_full_code:
-                    CircuitFactory.generate_circuit_full_code(CIRCUIT_NAME)
+                    CircuitFactory.build_circuit_full_code(CIRCUIT_NAME)
                 
                 namespace = {
                     "HandlerError": loop_environment.interface.HandlerError,
@@ -675,11 +675,32 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
 
         return CircuitFactory()
     
+    #==================================================================================
+    # def _static_circuit(ctx_updater, ctx, result_bridge, pauser):
+    #     ...
+    # If a circuit with this name is defined, _load_circuit_factory will be skipped,
+    # and the loop will start directly using the predefined circuit.
+    # This serves as a placeholder for hardcoding a generated circuit.
+    # If _static_circuit is defined and _load_circuit_factory is no longer used,
+    # the _load_circuit_factory function can be safely removed from the codebase.
+    #==================================================================================
+
+    STATIC_CIRCUIT_NAME = '_static_circuit'
 
     _state = _load_state()
     _injected_hook = _load_injected_hook(_state)
     _loop_environment = _load_loop_environment(_state)
-    _circuit_factory = _load_circuit_factory(_injected_hook, _loop_environment)
+
+    _circuit = locals().get(STATIC_CIRCUIT_NAME, None)
+    _circuit_full_code = None
+    if not _circuit:
+        _circuit_factory = _load_circuit_factory(_injected_hook, _loop_environment)
+        _circuit_full_code = _circuit_factory.build_circuit_full_code('_dynamic_circuit')
+        _circuit = _circuit_factory.compile()
+    
+    print(_circuit_full_code)
+    
+    
 
     _meta = SimpleNamespace()
 
