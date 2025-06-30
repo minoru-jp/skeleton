@@ -212,6 +212,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
         RUNNING = 10 # Sub-state of ACTIVE commute to PAUSE
         PAUSE = 11 # Sub-state of ACTIVE commute to RUNNING
 
+        LOOP_PENDING_RESULT = object()
         NO_RESULT = object()
 
         _loop_task = None
@@ -228,7 +229,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
         _nested_exc = None
 
         # not target of cleanup
-        _loop_result = NO_RESULT
+        _loop_result = LOOP_PENDING_RESULT
 
         def clean_environment():
             nonlocal _loop_task, _prev_event, _prev_result, _event, _exc, _nested_exc
@@ -238,9 +239,29 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
             _event = None
             _exc = None
             _nested_exc = None
+        
+        class LoopResultReader:
+            __slots__ = ()
+            @property
+            def LOOP_PENDING_RESULT(_):
+                return LOOP_PENDING_RESULT
+            @property
+            def NO_RESULT(_):
+                return NO_RESULT
+            @property
+            def exc(_):
+                return _exc
+            @property
+            def nested_exc(_):
+                return _nested_exc
+            @property
+            def loop_result(_):
+                return _loop_result
+            
+        _loop_result_reader = LoopResultReader()
 
         
-        class ResultReader:
+        class HandlerResultReader:
             __slots__ = ()
             @property
             def prev_event(_):
@@ -255,14 +276,14 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
             def nested_exc(_):
                 return _nested_exc
         
-        _result_reader = ResultReader()
+        _handler_result_reader = HandlerResultReader()
 
 
         class ResultBridge:
             __slots__ = ()
             @property
             def reader(_):
-                return _result_reader
+                return _handler_result_reader
             @staticmethod
             def set_prev(event, result):
                 nonlocal _prev_event, _prev_result
@@ -370,11 +391,8 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
             def mode(_):
                 return _mode_reader
             @property
-            def Break(_):
-                return Break
-            @property
             def result_reader(_):
-                return _result_reader
+                return _handler_result_reader
             @property
             def task(_):
                 return _loop_task
@@ -463,10 +481,18 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
                 finally:
                     clean_environment()
 
+
         class LoopEnvironment:
             __slots__ = ()
             @staticmethod
-            def 
+            def loop_start(circuit):
+                _loop_engine(circuit)
+            @property
+            def pauser(_):
+                return _pauser
+            @property
+            def result_reader(_):
+                return _loop_result_reader
         
 
         return LoopEnvironment()
@@ -476,7 +502,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
     def _load_circuit_factory(injected_hook, loop_environment):
     
         _CIRCUIT_TEMPLATE = [
-            ("{}def {}(ctx_updater, ctx, res_bridge, pauser):", 'define'),
+            ("{}def {}(ctx_updater, ctx, result_bridge, pauser):", 'define'),
             "    current = ''",
             "    result = None",
             "    try:",
@@ -501,7 +527,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
             ("current = '{}'", 'current_event'),
             ("{}", 'notify'),
             ("result = {}{}(ctx)", 'invoke_handler'),
-            "res_bridge.set_prev(current, result)", 'res_bridge',
+            ("result_bridge.set_prev(current, result)", 'result_bridge'),
         ]
 
         _PAUSABLE_TEMPLATE = [
@@ -562,6 +588,11 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
                         case 'invoke_handler':
                             lines.append(
                                 code.format("await " if await_ else "", event))
+                        case 'result_bridge':
+                            if event in ('on_pause', 'on_resume'):
+                                pass
+                            else:
+                                lines.append(code)
                         case _:
                             raise ValueError(f"Unknown tag in template: {tag}")
                 
