@@ -545,7 +545,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
             "",
         ]
 
-        _EVENT_IN_PAUSABLE_INDENT = 8
+        _EVENT_IN_PAUSABLE_INDENT = 4
 
         _HANDLER_IN_CIRCUIT = {
             'should_stop',
@@ -606,6 +606,8 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
                             snip = handler_snippets.get(tag, None)
                             if snip:
                                 lines.extend(INDENT + s for s in snip)
+                            elif tag == 'on_resume':
+                                lines.append('    pass')
 
                 return CircuitFactory._build_template(
                     _PAUSABLE_TEMPLATE, _tag_processor)
@@ -869,6 +871,7 @@ async def on_wait(ctx):
 handle.set_on_tick(lambda ctx: print("tick"), notify = True)
 handle.set_on_wait(on_wait)
 handle.set_should_stop(lambda ctx: False)
+handle.set_on_resume(lambda ctx: None, notify = True)
 
 # サーキットコードをダンプ出力
 handle.dump_circuit()
