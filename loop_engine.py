@@ -528,6 +528,11 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
             "",
         ]
 
+        _INVOKE_PAUSER_HANDLER_TEMPLATE = [
+            ("{}", 'notify'),
+            ("{}{}(ctx)", 'invoke_handler'),
+        ]
+
         _PAUSABLE_TEMPLATE = [
             "if pauser.enter_if_pending_pause():",
             ("{}", 'on_pause'),
@@ -537,25 +542,26 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
             "        raise CircuitError(e)",
             "if pauser.enter_if_pending_resume():",
             ("{}", 'on_resume'),
-            "    pass",
             "try:",
             "    await pauser.wait()",
             "except Exception as e:",
             "    raise CircuitError(e)",
-            "",
         ]
 
         _EVENT_IN_PAUSABLE_INDENT = 4
 
-        _HANDLER_IN_CIRCUIT = {
+        _LINEAR_HANDLER_IN_CIRCUIT = [
             'should_stop',
             'on_tick_before',
             'on_tick',
             'on_tick_after',
             'on_wait',
+        ]
+
+        _PAUSER_HANDLER_IN_CIRCUIT = [
             'on_pause',
             'on_resume'
-        }
+        ]
 
         _circuit_full_code = None
         _generated_circuit = None
@@ -574,7 +580,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
                 return lines
             
             @staticmethod
-            def _build_invoke_handler(event, notify, await_):
+            def _build_invoke_linear_handler(event, notify, await_):
                 def _tag_processor(lines, code, tag):
                     match(tag):
                         case 'current_event':
@@ -587,15 +593,31 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
                             lines.append(
                                 code.format("await " if await_ else "", event))
                         case 'result_bridge':
-                            if event in ('on_pause', 'on_resume'):
-                                pass
-                            else:
-                                lines.append(code.format(f"'{event}'"))
+                            lines.append(code.format(f"'{event}'"))
                         case _:
                             raise ValueError(f"Unknown tag in template: {tag}")
                 
                 return CircuitFactory._build_template(
                    _INVOKE_HANDLER_TEMPLATE, _tag_processor)
+            
+            @staticmethod
+            def _build_invoke_pauser_handler(event, notify, await_):
+                def _tag_processor(lines, code, tag):
+                    match(tag):
+                        case 'current_event':
+                            lines.append(code.format(event))
+                        case 'notify':
+                            if notify:
+                                lines.append(
+                                        code.format(f"ctx_updater('{event}')"))
+                        case 'invoke_handler':
+                            lines.append(
+                                code.format("await " if await_ else "", event))
+                        case _:
+                            raise ValueError(f"Unknown tag in template: {tag}")
+                
+                return CircuitFactory._build_template(
+                   _INVOKE_PAUSER_HANDLER_TEMPLATE, _tag_processor)
             
             @staticmethod
             def _build_pausable(handler_snippets):
@@ -635,8 +657,8 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
             def build_circuit_full_code(name):
                 nonlocal _circuit_full_code
                 includes_async_function = False
-                handler_snippets = {}
-                for event in _HANDLER_IN_CIRCUIT:
+                linear_handler_snippets = {}
+                for event in _LINEAR_HANDLER_IN_CIRCUIT:
                     handler = injected_hook.get_handler(event)
                     if not handler:
                         continue
@@ -644,17 +666,30 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
                     handler, notify = handler
                     async_func = inspect.iscoroutinefunction(handler)
                     includes_async_function |= async_func
-                    handler_snippets[event] =\
-                        CircuitFactory._build_invoke_handler(
+                    linear_handler_snippets[event] =\
+                        CircuitFactory._build_invoke_linear_handler(
+                            event, notify, async_func)
+                
+                pauser_handler_snippets = {}
+                for event in _PAUSER_HANDLER_IN_CIRCUIT:
+                    handler = injected_hook.get_handler(event)
+                    if not handler:
+                        continue
+                    # deploy handler: (handler, notify)
+                    handler, notify = handler
+                    async_func = inspect.iscoroutinefunction(handler)
+                    includes_async_function |= async_func
+                    pauser_handler_snippets[event] =\
+                        CircuitFactory._build_invoke_pauser_handler(
                             event, notify, async_func)
                 
                 pausable_snippet = CircuitFactory._build_pausable(
-                    handler_snippets
+                    pauser_handler_snippets
                 ) if injected_hook.circuit_is_pausable else None
 
                 all_snippets = CircuitFactory._build_circuit(
                     name, includes_async_function,
-                    handler_snippets, pausable_snippet
+                    linear_handler_snippets, pausable_snippet
                 )
 
                 _circuit_full_code = "\n".join(all_snippets)
@@ -868,10 +903,11 @@ async def on_wait(ctx):
     print("wait")
 
 # 各ハンドラを登録
-handle.set_on_tick(lambda ctx: print("tick"), notify = True)
-handle.set_on_wait(on_wait)
-handle.set_should_stop(lambda ctx: False)
-handle.set_on_resume(lambda ctx: None, notify = True)
+handle.set_on_tick(lambda ctx: print("tick"), notify = False)
+handle.set_on_wait(on_wait, notify = True)
+handle.set_should_stop(lambda ctx: True)
+handle.set_on_pause(lambda ctx: None, notify = True)
+handle.set_on_resume(lambda ctx: None, notify = False)
 
 # サーキットコードをダンプ出力
 handle.dump_circuit()
