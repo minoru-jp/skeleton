@@ -503,8 +503,6 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
     
         _CIRCUIT_TEMPLATE = [
             ("{}def {}(ctx_updater, ctx, result_bridge, pauser):", 'define'),
-            "    current = ''",
-            "    result = None",
             "    try:",
             "        while True:",
             ("{}", 'should_stop'),
@@ -524,10 +522,9 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
         _EVENT_IN_CIRCUIT_INDENT = 12
         
         _INVOKE_HANDLER_TEMPLATE = [
-            ("current = '{}'", 'current_event'),
             ("{}", 'notify'),
             ("result = {}{}(ctx)", 'invoke_handler'),
-            ("result_bridge.set_prev(current, result)", 'result_bridge'),
+            ("result_bridge.set_prev({}, result)", 'result_bridge'),
             "",
         ]
 
@@ -545,6 +542,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
             "    await pauser.wait()",
             "except Exception as e:",
             "    raise CircuitError(e)",
+            "",
         ]
 
         _EVENT_IN_PAUSABLE_INDENT = 8
@@ -592,7 +590,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
                             if event in ('on_pause', 'on_resume'):
                                 pass
                             else:
-                                lines.append(code)
+                                lines.append(code.format(f"'{event}'"))
                         case _:
                             raise ValueError(f"Unknown tag in template: {tag}")
                 
