@@ -692,23 +692,16 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
     _loop_environment = _load_loop_environment(_state)
 
     _circuit = locals().get(STATIC_CIRCUIT_NAME, None)
-    _circuit_full_code = None
     if not _circuit:
         _circuit_factory = _load_circuit_factory(_injected_hook, _loop_environment)
-        _circuit_full_code = _circuit_factory.build_circuit_full_code('_dynamic_circuit')
-        _circuit = _circuit_factory.compile()
     
+    # This function is currently under development.
+    # The loop does not start; the purpose here is to inspect the dynamically generated code.
     print(_circuit_full_code)
-    
     
 
     _meta = SimpleNamespace()
 
-
-
-
-    
-    
 
 
     def start():
@@ -717,7 +710,6 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
         This function is asynchronous, but does not wait for the loop to finish.
         The loop runs independently in the background.
         '''
-        nonlocal _state, _loop_task
         _check_state(LOAD, error_msg="start() must be called in LOAD state")
         _state = ACTIVE
         _running_event.set()
@@ -779,67 +771,50 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
         _running_setter.set_resume()
 
     # --- explicit handler setters ---
+    def set_on_start(fn: _Handler, notify=False):  # type: ignore
+        _injected_hook.set_handler('on_start', fn, notify)
 
-    def set_on_start(fn: _Handler): # type: ignore
-        _check_state_is_load_for_setter(set_on_start)
-        _handlers['on_start'] = fn
+    def set_on_end(fn: _Handler, notify=False):  # type: ignore
+        _injected_hook.set_handler('on_end', fn, notify)
 
-    def set_on_end(fn: _Handler): # type: ignore
-        _check_state_is_load_for_setter(set_on_end)
-        _handlers["on_end"] = fn
+    def set_on_stop(fn: _Handler, notify=False):  # type: ignore
+        _injected_hook.set_handler('on_stop', fn, notify)
 
-    def set_on_stop(fn: _Handler): # type: ignore
-        _check_state_is_load_for_setter(set_on_stop)
-        _handlers["on_stop"] = fn
+    def set_on_closed(fn: _Handler, notify=False):  # type: ignore
+        _injected_hook.set_handler('on_closed', fn, notify)
 
-    def set_on_closed(fn: _Handler): # type: ignore
-        _check_state_is_load_for_setter(set_on_closed)
-        _handlers["on_closed"] = fn
+    def set_on_tick_before(fn: _Handler, notify=False):  # type: ignore
+        _injected_hook.set_handler('on_tick_before', fn, notify)
 
-    def set_on_tick_before(fn: _Handler): # type: ignore
-        _check_state_is_load_for_setter(set_on_tick_before)
-        _handlers["on_tick_before"] = fn
+    def set_on_tick(fn: _Handler, notify=False):  # type: ignore
+        _injected_hook.set_handler('on_tick', fn, notify)
 
-    def set_on_tick(fn: _Handler): # type: ignore
-        _check_state_is_load_for_setter(set_on_tick)
-        _handlers["on_tick"] = fn
+    def set_on_tick_after(fn: _Handler, notify=False):  # type: ignore
+        _injected_hook.set_handler('on_tick_after', fn, notify)
 
-    def set_on_tick_after(fn: _Handler): # type: ignore
-        _check_state_is_load_for_setter(set_on_tick_after)
-        _handlers["on_tick_after"] = fn
+    def set_on_wait(fn: _Handler, notify=False):  # type: ignore
+        _injected_hook.set_handler('on_wait', fn, notify)
 
-    def set_on_wait(fn: _Handler): # type: ignore
-        _check_state_is_load_for_setter(set_on_wait)
-        _handlers["on_wait"] = fn
+    def set_should_stop(fn: _Handler, notify=False):  # type: ignore
+        _injected_hook.set_handler('should_stop', fn, notify)
 
-    def set_should_stop(fn: _Handler): # type: ignore
-        _check_state_is_load_for_setter(set_should_stop)
-        _handlers["should_stop"] = fn
+    def set_on_pause(fn: _Handler, notify=False):  # type: ignore
+        _injected_hook.set_handler('on_pause', fn, notify)
 
-    def set_on_pause(fn: _Handler): # type: ignore
-        _check_state_is_load_for_setter(set_on_pause)
-        _handlers["on_pause"] = fn
+    def set_on_resume(fn: _Handler, notify=False):  # type: ignore
+        _injected_hook.set_handler('on_resume', fn, notify)
 
-    def set_on_resume(fn: _Handler): # type: ignore
-        _check_state_is_load_for_setter(set_on_resume)
-        _handlers["on_resume"] = fn
-    
-    def set_on_handler_exception(fn: _Handler): # type: ignore
-        _check_state_is_load_for_setter(set_on_handler_exception)
-        _handlers["on_handler_exception"] = fn
+    def set_on_handler_exception(fn: _Handler, notify=False):  # type: ignore
+        _injected_hook.set_handler('on_handler_exception', fn, notify)
 
-    def set_on_circuit_exception(fn: _Handler): # type: ignore
-        _check_state_is_load_for_setter(set_on_circuit_exception)
-        _handlers["on_circuit_exception"] = fn
-    
-    def set_on_result(fn: _Handler): # type: ignore
-        _check_state_is_load_for_setter(set_on_result)
-        _handlers["on_result"] = fn
+    def set_on_circuit_exception(fn: _Handler, notify=False):  # type: ignore
+        _injected_hook.set_handler('on_circuit_exception', fn, notify)
+
+    def set_on_result(fn: _Handler, notify=False):  # type: ignore
+        _injected_hook.set_handler('on_result', fn, notify)
     
     def set_context_builder_factory(fn):
-        nonlocal _context_updater_factory
-        _check_state_is_load_for_setter(set_context_builder_factory)
-        _context_updater_factory = fn
+        _injected_hook.set_context_updater_factory(fn)
     
 
 
@@ -863,18 +838,6 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
 
     handle._split = _split
     handle.meta = _meta
-
-    handle.LOAD = LOAD
-    handle.ACTIVE = ACTIVE
-    handle.CLOSED = CLOSED
-    handle.UNCLEAN = UNCLEAN
-    handle.RUNNING = RUNNING
-    handle.PAUSE = PAUSE
-
-    handle.NO_RESULT = NO_RESULT
-
-    handle.HandleStateError = HandleStateError
-    handle.HandleClosed = HandleClosed
 
     handle.start = start
     handle.ready = ready
