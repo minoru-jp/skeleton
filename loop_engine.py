@@ -409,53 +409,49 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
                 await _invoke_handler('on_end', ctx_updater, ctx)
 
             except asyncio.CancelledError as e:
-                _result_bridge.set_exc(e)
+                _exc = e
                 logger.info(f"[{role}] Loop was cancelled")
                 try:
                     await _invoke_handler('on_stop', ctx_updater, ctx)
                 except Exception as nested_exc:
-                    _result_bridge.set_nested_exc(nested_exc)
+                    _nested_exc = nested_exc
                     raise nested_exc from e
             except LoopInterface.HandlerError as e:
                 event = e.event
                 orig_e = e.orig_exception
-                _result_bridge.set_exc(e)
+                _exc = e
                 logger.exception(f"[{role}] {event} Handler failed")
                 try:
                     await _invoke_handler('on_handler_exception', ctx_updater, ctx)
                 except Exception as nested_exc:
-                    _result_bridge.set_nested_exc(nested_exc)
+                    _nested_exc = nested_exc
                     raise nested_exc from e
                 raise orig_e from None
             except Exception as e:
-                _result_bridge.set_exc(e)
+                _exc = e
                 logger.exception(f"[{role}] Unknown exception in circuit")
                 try:
                     await _invoke_handler('on_circuit_exception', ctx_updater, ctx)
                 except Exception as nested_exc:
-                    _result_bridge.set_nested_exc(nested_exc)
+                    _nested_exc = nested_exc
                     raise nested_exc from e
                 raise
             finally:
+                # Currently, exceptions raised from on_closed or on_result are not handled.
+                # Consider whether to introduce explicit handlers or allow propagation.
                 try:
                     await _invoke_handler('on_closed', ctx_updater, ctx)
                     state_.transit_state(state_.CLOSED)
                 except Exception:
-                    state_.transit_state(state_.UNCLEAN)
-                    try:
-                        await _invoke_handler('on_handler_exception', ctx_updater, ctx)
-                    except Exception as nested_exc:
-                        _result_bridge.set_nested_exc(nested_exc)
+                    logger.exception(f"[{role}] on_closed handler failed")
+                    state_.transit_state(state_.UNCLOSED)
                 try:
                     await _invoke_handler('on_result', ctx_updater, ctx)
                     _loop_result = _result_bridge.prev_result
                     return
                 except Exception:
+                    logger.exception(f"[{role}] on_result handler failed")
                     _loop_result = NO_RESULT
-                    try:
-                        await _invoke_handler('on_handler_exception', ctx_updater, ctx)
-                    except Exception as nested_exc:
-                        _result_bridge.set_nested_exc(nested_exc)
                     return
                 finally:
                     clean_environment()
