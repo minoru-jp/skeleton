@@ -67,74 +67,206 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
 
     if not logger:
         logger = logging.getLogger(__name__)
-
-    class HandleStateError(Exception):
-        pass
-    class HandleClosed(HandleStateError):
-        pass
-
-    class HandlerError(Exception):
-        def __init__(self, event, exception):
-            super().__init__()
-            self.event = event
-            self.orig_exception = exception
-    
-    class CircuitError(Exception):
-        def __init__(self, exception):
-            self.orig_exception = exception
     
     class Break(Exception):
         pass
-
-    LOAD = 0
-    ACTIVE = 1
-    RUNNING = 10 # Sub-state of ACTIVE commute to PAUSE
-    PAUSE = 11 # Sub-state of ACTIVE commute to RUNNING
-    CLOSED = 2
-    UNCLEAN = 20 # Terminal-state used instead of BROKEN if _on_closed() fails
-    TERMINAL_STATES = (CLOSED, UNCLEAN)
-
-    NO_RESULT = object()
-
-    _state = LOAD # LOAD -> ACTIVE -> CLOSED | UNCLEAN
-
-    _circuit = None
     
-    _loop_task = None
+    def _load_state():
 
-    # _context_builder is expected derives from a closure, like this
-    # def create_context_builder():
-    #    ctx = ...
-    #    def context_builder(event, **kwargs):
-    #        if event == 'init':
-    #            vars(ctx).update(kwargs)
-    #        elif event == 'on_start':
-    #            ...
-    #        elif ...
-    #        return ctx
-    #    return context_builder
+        _LOAD = 0
+        _ACTIVE = 1
+        _CLOSED = 2
+        _UNCLEAN = 20 # Terminal-state used instead of CLOSED if _on_closed() fails
+        _TERMINAL_STATES = (_CLOSED, _UNCLEAN)
 
-    def dummy_context_updater_factory(env):
-        ctx = SimpleNamespace()
-        ctx.count = 0
-        ctx.env = env
-        def context_updater(event):
-            if event == 'on_tick':
-                ctx.count += 1
-            return ctx
-        return context_updater
-    _context_updater_factory = dummy_context_updater_factory
+        _state = _LOAD
 
-    _handlers = {}
+        def _validate_state_value(state):
+            if state not in (_LOAD, _ACTIVE, *_TERMINAL_STATES):
+                raise State.UnknownStateError(
+                    f"Unknown or unsupported state value: {state}")
+            
+        def _require_state(expected):
+            _validate_state_value(expected)
+            if expected != _state:
+                err_log = f"State error: expected = {expected}, actual = {_state}"
+                if _state in _TERMINAL_STATES:
+                    raise State.InvalidStateError(err_log)
+                raise State.ClosedError(err_log)
+        
+        class StateInterface:
+            class UnknownStateError(Exception):
+                pass
+            class InvalidStateError(Exception):
+                pass
+            class ClosedError(InvalidStateError):
+                pass
 
-    def create_running_mode_some():
+            __slots__ = ()
+            @property
+            def LOAD(_):
+                return _LOAD
+            @property
+            def ACTIVE(_):
+                return _ACTIVE
+            @property
+            def CLOSED(_):
+                return _CLOSED
+            @property
+            def UNCLEAN(_):
+                return _UNCLEAN
+            @property
+            def TERMINAL_STATES(_):
+                return _TERMINAL_STATES
+            
+            @property
+            def current_state(_):
+                return _state
+
+
+        class State(StateInterface):
+            __slots__ = ()
+            @staticmethod
+            def maintain_state(state, fn, *fn_args, **fn_kwargs):
+                _require_state(state)
+                return fn(*fn_args, **fn_kwargs)
+            
+            @staticmethod
+            def transit_state_with(to, fn, *fn_args, **fn_kwargs):
+                nonlocal _state
+                _validate_state_value(to)
+                to_active = _state == _LOAD and to == _ACTIVE
+                to_terminal = _state == _ACTIVE and to in _TERMINAL_STATES
+                if not (to_active or to_terminal):
+                    raise State.InvalidStateError(
+                        f"Invalid transition: {_state} → {to}")
+                if fn:
+                    result = State.maintain_state(
+                        _state, fn, *fn_args, **fn_kwargs)
+                    _state = to
+                    return result
+                else:
+                    return None
+                
+            @staticmethod
+            def transit_state(to):
+                return State.transit_state_with(to, None)
+        
+        return State()
+    
+    def _load_injected_hook(state):
+        
+        def _DEFAULT_CPF(interface):
+            def context_updater(event):
+                return interface
+            return context_updater, interface
+
+        _handlers = {} # event: tuple(handler, notify)
+        _context_updater_factory = _DEFAULT_CPF
+        _pausable = True
+
+        class InjectedHook:
+            __slots__ = ()
+            @staticmethod
+            def set_handler(event, handler, notify):
+                def fn(): _handlers[event] = (handler, notify)
+                state.maintain_state(state.LOAD, fn)
+
+            @staticmethod
+            def get_hanlder(event):
+                return _handlers.get(event, None)
+            
+            @staticmethod
+            def set_context_updater_factory(ctx_updater_factory):
+                def fn():
+                    nonlocal _context_updater_factory
+                    _context_updater_factory = ctx_updater_factory
+                state.maintain_state(state.LOAD, fn)
+
+            @staticmethod
+            def get_context_updater_factory():
+                return _context_updater_factory
+            
+            @staticmethod
+            def set_pausable(flag):
+                def fn():
+                    nonlocal _pausable
+                    _pausable = flag
+                state.maintain_state(state.LOAD, fn)
+
+            @staticmethod
+            def cirucit_is_pausable():
+                return _pausable
+        
+        return InjectedHook()
+
+
+    def _load_loop_environment(state_, injected_hook, circuit_factory):
+
+        RUNNING = 10 # Sub-state of ACTIVE commute to PAUSE
+        PAUSE = 11 # Sub-state of ACTIVE commute to RUNNING
+
+        NO_RESULT = object()
+
+        _loop_task = None
+        
+        _prev_event = None
+        _prev_result = None
 
         _mode = RUNNING
         _event = asyncio.Event()
         _pending_pause = False
         _pending_resume = False
 
-        class RunningModeManager:
+        _exc = None
+        _nested_exc = None
+
+        # not target of cleanup
+        _loop_result = NO_RESULT
+
+        def clean_environment():
+            nonlocal _loop_task, _prev_event, _prev_result, _event, _exc, _nested_exc
+            _loop_task = None
+            _prev_event = None
+            _prev_result = None
+            _event = None
+            _exc = None
+            _nested_exc = None
+
+        
+        class ResultReader:
+            __slots__ = ()
+            @property
+            def prev_event(_):
+                return _prev_event
+            @property
+            def prev_result(_):
+                return _prev_result
+            @property
+            def exc(_):
+                return _exc
+            @property
+            def nested_exc(_):
+                return _nested_exc
+        
+        _result_reader = ResultReader()
+
+
+        class ResultBridge:
+            __slots__ = ()
+            @property
+            def reader(_):
+                return _result_reader
+            @staticmethod
+            def set_prev(event, result):
+                nonlocal _prev_event, _prev_result
+                _prev_event = event
+                _prev_result = result
+        
+        _result_bridge = ResultBridge()
+
+
+        class Pauser:
             __slots__ = ()
             @staticmethod
             def enter_if_pending_pause():
@@ -149,28 +281,11 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
             def enter_if_pending_resume():
                 nonlocal _mode, _pending_resume
                 if _pending_resume:
-                    print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
                     _pending_resume = False
                     _mode = RUNNING
                     return True
                 else:
                     return False
-
-        class RunningModeSetter:
-            __slots__ = ()
-            @staticmethod
-            def set_pause():
-                nonlocal _mode, _pending_pause
-                _pending_pause = True
-            @staticmethod
-            def set_resume():
-                print("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
-                nonlocal _mode, _pending_resume
-                _pending_resume = True
-                _event.set()
-        
-        class RunningEvent:
-            __slots__ = ()
             @staticmethod
             def set():
                 _event.set()
@@ -180,285 +295,366 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
             @staticmethod
             async def wait():
                 await _event.wait()
-        
-        class RunningModeReader:
-            __slots__ = ()
-            @staticmethod
-            def get_mode():
-                return _mode
-            @staticmethod
-            def is_pending_pause():
+            @property
+            def pending_pause(_):
                 return _pending_pause
-            @staticmethod
-            def is_pending_resume():
+            @property
+            def pending_resume(_):
                 return _pending_resume
+            @staticmethod
+            def set_pause():
+                nonlocal _pending_pause
+                _pending_pause = True
+            @staticmethod
+            def set_resume():
+                nonlocal _pending_resume
+                _pending_resume = True
+                _event.set()
+            @property
+            def current_mode(_):
+                return _mode
+
+        _pauser = Pauser()
+
+
+        class ModeReader:
+            __slots__ = ()
+            @property
+            def RUNNING(_):
+                return RUNNING
+            @property
+            def PAUSE(_):
+                return PAUSE
+            @property
+            def current(_):
+                return _mode
+            @property
+            def pending_pause(_):
+                return _pauser.pending_pause
+            @property
+            def pending_resume(_):
+                return _pauser.pending_resume
         
-        return (RunningModeManager(),
-                RunningModeSetter(),
-                RunningEvent(),
-                RunningModeReader())
+        _mode_reader = ModeReader()
 
-    _running_manager, _running_setter, _running_event, _running_reader =\
-        create_running_mode_some()
 
-    def create_result_chain_some():
+        class LoopInterface:
 
-        _prev_event = ''
-        _prev_result = None
+            class HandlerError(Exception):
+                def __init__(self, event, exception):
+                    super().__init__()
+                    self.event = event
+                    self.orig_exception = exception
+            
+            class CircuitError(Exception):
+                def __init__(self, exception):
+                    self.orig_exception = exception
+            
+            class Break(Exception):
+                pass
 
-        class ResultCleaner:
+            __slots__ = ()
+            @property
+            def role(_):
+                return role
+            @property
+            def state(_):
+                return state_.state
+            @property
+            def mode(_):
+                return _mode_reader
+            @property
+            def Break(_):
+                return Break
+            @property
+            def result_reader(_):
+                return _result_reader
+            @property
+            def task(_):
+                return _loop_task
+        
+
+        _loop_interface = LoopInterface()
+
+
+        async def _invoke_handler(event, ctx_updater, ctx):
+            handler = injected_hook.get_handler(event)
+            if not handler:
+                return
+            # deploy handler: (handler, notify)
+            handler, notify = handler
+            if notify:
+                ctx_updater(event)
+            try:
+                tmp = handler(ctx)
+                result = await tmp if inspect.isawaitable(tmp) else tmp
+                _result_bridge.set_prev(event, result)
+            except Exception as e:
+                raise LoopInterface.HandlerError(event, e)
+
+        async def _loop_engine(circuit):
+            nonlocal _loop_result, _exc, _nested_exc
+            try:
+                loop_interface = _loop_interface
+                ctx_updater, ctx = injected_hook.get_context_updater_factory(
+                    loop_interface)
+                
+                await _invoke_handler('on_start', ctx_updater, ctx)
+
+                if inspect.iscoroutinefunction(circuit):
+                    await circuit(ctx_updater, ctx, _result_bridge, _pauser)
+                else:
+                    circuit(ctx_updater, ctx, _result_bridge, _pauser)
+                
+                await _invoke_handler('on_end', ctx_updater, ctx)
+
+            except asyncio.CancelledError as e:
+                _result_bridge.set_exc(e)
+                logger.info(f"[{role}] Loop was cancelled")
+                try:
+                    await _invoke_handler('on_stop', ctx_updater, ctx)
+                except Exception as nested_exc:
+                    _result_bridge.set_nested_exc(nested_exc)
+                    raise nested_exc from e
+            except LoopInterface.HandlerError as e:
+                event = e.event
+                orig_e = e.orig_exception
+                _result_bridge.set_exc(e)
+                logger.exception(f"[{role}] {event} Handler failed")
+                try:
+                    await _invoke_handler('on_handler_exception', ctx_updater, ctx)
+                except Exception as nested_exc:
+                    _result_bridge.set_nested_exc(nested_exc)
+                    raise nested_exc from e
+                raise orig_e from None
+            except Exception as e:
+                _result_bridge.set_exc(e)
+                logger.exception(f"[{role}] Unknown exception in circuit")
+                try:
+                    await _invoke_handler('on_circuit_exception', ctx_updater, ctx)
+                except Exception as nested_exc:
+                    _result_bridge.set_nested_exc(nested_exc)
+                    raise nested_exc from e
+                raise
+            finally:
+                try:
+                    await _invoke_handler('on_closed', ctx_updater, ctx)
+                    state_.transit_state(state_.CLOSED)
+                except Exception:
+                    state_.transit_state(state_.UNCLEAN)
+                    try:
+                        await _invoke_handler('on_handler_exception', ctx_updater, ctx)
+                    except Exception as nested_exc:
+                        _result_bridge.set_nested_exc(nested_exc)
+                try:
+                    await _invoke_handler('on_result', ctx_updater, ctx)
+                    _loop_result = _result_bridge.prev_result
+                    return
+                except Exception:
+                    _loop_result = NO_RESULT
+                    try:
+                        await _invoke_handler('on_handler_exception', ctx_updater, ctx)
+                    except Exception as nested_exc:
+                        _result_bridge.set_nested_exc(nested_exc)
+                    return
+                finally:
+                    clean_environment()
+
+        class LoopEnvironment:
             __slots__ = ()
             @staticmethod
-            def clean():
-                nonlocal _prev_event, _prev_result
-                _prev_event = None
-                _prev_result = None
+            def 
+        
 
-        class ResultSetter:
+        return LoopEnvironment()
+
+
+
+    def _load_circuit_factory(injected_hook, loop_environment):
+    
+        _CIRCUIT_TEMPLATE = [
+            ("{}def {}(ctx_updater, ctx, res_bridge, pauser):", 'define'),
+            "    current = ''",
+            "    result = None",
+            "    try:",
+            "        while True:",
+            ("{}", 'should_stop'),
+            ("{}", 'on_tick_befoer'),
+            ("{}", 'on_tick'),
+            ("{}", 'on_tick_after'),
+            ("{}", 'on_wait'),
+            ("{}", 'pausable'),
+            "    except Break as e:",
+            "        pass",
+            "    except CircuitError as e:",
+            "        raise e.orig_exception",
+            "    except Exception as e:",
+            "        raise HandlerError(current, e)",
+        ]
+
+        _EVENT_IN_CIRCUIT_INDENT = 8
+        
+        _INVOKE_HANDLER_TEMPLATE = [
+            ("current = '{}'", 'current_event'),
+            ("{}", 'notify'),
+            ("result = {}{}(ctx)", 'invoke_handler'),
+            "res_bridge.set_prev(current, result)", 'res_bridge',
+        ]
+
+        _PAUSABLE_TEMPLATE = [
+            "if pauser.enter_if_pending_pause():",
+            ("{}", 'on_pause'),
+            "    try:",
+            "        pauser.clear()",
+            "    except Exception as e:",
+            "        raise CircuitError(e)",
+            "",
+            "if pauser.enter_if_pending_resume():",
+            ("{}", 'on_resume'),
+            "    pass",
+            "try:",
+            "    await pauser.wait()",
+            "except Exception as e:",
+            "    raise CircuitError(e)",
+        ]
+
+        _EVENT_IN_PAUSABLE_INDENT = 4
+
+        _HANDLER_IN_CIRCUIT = {
+            'should_stop',
+            'on_tick_before',
+            'on_tick',
+            'on_tick_after',
+            'on_wait',
+            'on_pause',
+            'on_resume'
+        }
+
+        _circuit_full_code = None
+        _generated_circuit = None
+
+        class CircuitFactory:
             __slots__ = ()
             @staticmethod
-            def set_prev(event, result):
-                nonlocal _prev_event, _prev_result
-                _prev_event = event
-                _prev_result = result
-        
-        class ResultReader:
-            __slots__ = ()
+            def _build_template(template, tag_processor):
+                lines = []
+                for line in template:
+                    match(line):
+                        case str() as code:
+                            lines.append(code)
+                        case (code, tag):
+                            tag_processor(lines, code, tag)
+                return lines
+            
             @staticmethod
-            def get_prev_event():
-                return _prev_event
+            def _build_invoke_handler(event, notify, await_):
+                def _tag_processor(lines, code, tag):
+                    match(tag):
+                        case 'current_event':
+                            lines.append(code.format(event))
+                        case 'notify':
+                            if notify:
+                                lines.append(
+                                        code.format(f"ctx_updater('{event}')"))
+                        case 'invoke_handler':
+                            lines.append(
+                                code.format("await " if await_ else "", event))
+                        case _:
+                            raise ValueError(f"Unknown tag in template: {tag}")
+                
+                return CircuitFactory._build_template(
+                   _INVOKE_HANDLER_TEMPLATE, _tag_processor)
+            
             @staticmethod
-            def get_prev_result():
-                return _prev_result
+            def _build_pausable(handler_snippets):
+                def _tag_processor(lines, code, tag):
+                    INDENT = _EVENT_IN_PAUSABLE_INDENT
+                    match(tag):
+                        case _:
+                            snip = handler_snippets.get(tag, None)
+                            if snip:
+                                lines.extend(INDENT + s for s in snip)
+
+                return CircuitFactory._build_template(
+                    _PAUSABLE_TEMPLATE, _tag_processor)
+            
+            @staticmethod
+            def _build_circuit(handler_snippets, pausable_snippet):
+                def _tag_processor(lines, code, tag):
+                    INDENT = _EVENT_IN_CIRCUIT_INDENT
+                    match(tag):
+                        case 'pausable':
+                            if pausable_snippet:
+                                lines.extend(INDENT + p for p in pausable_snippet)
+                        case _:
+                            snip = handler_snippets.get(tag, None)
+                            if snip:
+                                lines.extend(INDENT + h for h in snip)
+                    
+                return CircuitFactory._build_template(
+                _CIRCUIT_TEMPLATE, _tag_processor)
+
+            @staticmethod
+            def generate_circuit_full_code(name):
+                nonlocal _circuit_full_code
+                includes_async_function = False
+                handler_snippets = {}
+                for event in _HANDLER_IN_CIRCUIT:
+                    handler = injected_hook.get_handler(event)
+                    if not handler:
+                        continue
+                    # deploy handler: (handler, notify)
+                    handler, notify = handler
+                    async_func = inspect.iscoroutinefunction(handler)
+                    includes_async_function |= async_func
+                    handler_snippets[event] =\
+                        CircuitFactory._build_invoke_handler(
+                            event, notify, async_func)
+                
+                pausable_snippet = CircuitFactory._build_pausable(
+                    handler_snippets
+                ) if injected_hook.circuit_is_pausable else None
+
+                all_snippets = CircuitFactory._build_circuit(
+                    handler_snippets, pausable_snippet
+                )
+
+                _circuit_full_code = "\n".join(all_snippets)
+                return _circuit_full_code
         
-        return ResultCleaner(), ResultSetter(), ResultReader()
+            @staticmethod
+            def compile():
+                nonlocal _generated_circuit
+                CIRCUIT_NAME = '_circuit'
+                if not _circuit_full_code:
+                    CircuitFactory.generate_circuit_full_code(CIRCUIT_NAME)
+                
+                namespace = {
+                    "HandlerError": loop_environment.interface.HandlerError,
+                    "CircuitError": loop_environment.interface.CircuitError,
+                    "Break": loop_environment.interface.Break,
+                }
+                dst = {}
+                exec(_circuit_full_code, namespace, dst)
+                _generated_circuit = dst[CIRCUIT_NAME]
+                return _generated_circuit
 
-    _result_cleaner, _result_setter, _result_reader = create_result_chain_some()
+        return CircuitFactory()
+    
 
+    _state = _load_state()
+    _injected_hook = _load_injected_hook(_state)
+    _loop_environment = _load_loop_environment(_state)
+    _circuit_factory = _load_circuit_factory(_injected_hook, _loop_environment)
 
     _meta = SimpleNamespace()
 
 
-    async def _invoke_handler(event, ctx_updater, ctx):
-        handler = _handlers.get(event, None)
-        if not handler:
-            return
-        ctx_updater(event)
-        try:
-            tmp = handler(ctx)
-            result = await tmp if inspect.isawaitable(tmp) else tmp
-            _result_setter.set_prev(event, result)
-        except Exception as e:
-            raise HandlerError(event, e)
-
-    def _create_loop_environment():
-        # TODO: Consider how to prevent handlers from modifying this
-        env = SimpleNamespace()
-        env.init = SimpleNamespace()
-        env.init.role = role
-        env.const = SimpleNamespace()
-        env.const.states = SimpleNamespace()
-        env.const.states.LOAD = LOAD
-        env.const.states.ACTIVE = ACTIVE
-        env.const.states.CLOSED = CLOSED
-        env.const.states.UNCLEAN = UNCLEAN
-        env.const.mode = SimpleNamespace()
-        env.const.mode.RUNNING = RUNNING
-        env.const.mode.PAUSE = PAUSE
-        env.type = SimpleNamespace()
-        env.type.HandlerError = HandlerError
-        env.signal = SimpleNamespace()
-        env.signal.Break = Break
-        env.loop_task = None
-        env.result_reader = _result_reader
-        env.mode_reader = _running_reader
-        env.state = ACTIVE
-        env.exc = None
-        env.nested_exc = None
-        return env
-
-    async def _loop_engine():
-        nonlocal _loop_task, _meta
-        try:
-            env = _create_loop_environment()
-            ctx_updater = _context_updater_factory(env)
-            ctx = ctx_updater('get')
-            await _invoke_handler('on_start', ctx_updater, ctx)
-            await _circuit(ctx_updater, ctx)
-            await _invoke_handler('on_end', ctx_updater, ctx)
-        except asyncio.CancelledError as e:
-            env.exc = e
-            logger.info(f"[{role}] Loop was cancelled")
-            try:
-                await _invoke_handler('on_stop', ctx_updater, ctx)
-            except Exception as nested_e:
-                env.nested_exc = nested_e
-                raise nested_e from e
-        except HandlerError as e:
-            event = e.event
-            orig_e = e.orig_exception
-            # TODO: Consider how to pass exceptions to the exception handler
-            env.exc = e
-            logger.exception(f"[{role}] {event} Handler failed")
-            try:
-                _invoke_handler('on_handler_exception', ctx_updater, ctx)
-            except Exception as nested_e:
-                env.nested_exc = nested_e
-                raise nested_e from e
-            raise orig_e from None
-        except Exception as e:
-            # TODO: Consider how to pass exceptions to the exception handler
-            env.exc = e
-            logger.exception(f"[{role}] Unknown exception in circuit")
-            try:
-                _invoke_handler('on_circuit_exception', ctx_updater, ctx)
-            except Exception as nested_e:
-                env.nested_exc = nested_e
-                raise nested_e from e
-            raise
-        finally:
-            try:
-                await _invoke_handler('on_closed', ctx_updater, ctx)
-                _state = CLOSED
-            except Exception:
-                _state = UNCLEAN
-                env.state = _state
-            try:
-                return await _invoke_handler('on_result', ctx_updater, ctx)
-            except Exception:
-                return NO_RESULT
-            finally:
-                _result_cleaner.clean()
-                _handlers.clear()
-                _loop_task = None
-                _meta = None
 
 
-    _CIRCUIT_TEMPLATE = '''\
-{async_}def {name}(ctx_updater, ctx):
-    current = ''
-    result = None
-    try:
-        while True:{should_stop}{on_tick_before}{on_tick}{on_tick_after}{on_wait}{pause_resume}
-    except Break as e:
-        pass
-    except CircuitError as e:
-        raise e.orig_exception
-    except Exception as e:
-        raise HandlerError(current, e)
-    '''
-
-    #Note: zero indent
-    _INVOKE_HANDLER_TEMPLATE = textwrap.dedent('''\
-    current = '{event}'{ctx_update}
-    result = {await_}{event}(ctx)
-    result_setter.set_prev(current, result)
-    ''')
-
-    #Note: zero indent
-    _PAUSABLE_TEMPLATE = textwrap.dedent('''\
-if running_manager.enter_if_pending_pause():{on_pause}
-    try:
-        running_event.clear()
-    except Exception as e:
-        raise CircuitError(e)
-
-if running_manager.enter_if_pending_resume():{on_resume}
-    pass
-try:
-    await running_event.wait()
-except Exception as e:
-    raise CircuitError(e)
-    ''')
-
-    HANDLER_IN_CIRCUIT = {
-        'should_stop',
-        'on_tick_before',
-        'on_tick',
-        'on_tick_after',
-        'on_wait',
-        'on_pause',
-        'on_resume'
-    }
-
-    def _compile_circuit(
-        circuit_name: str,
-        handlers: dict[str: callable],
-        notify_ctx: bool,
-        result_setter,
-        running_manager,
-        running_event,
-        pausable:bool,
-        break_exc,
-        handler_err_exc,
-        circuit_err_exc,
-    ) -> tuple:
-        includes_async_function = False
-        invoking_parts = {}
-        ns_for_handlers = {}
-        for event, handler in handlers.items():
-            if event not in HANDLER_IN_CIRCUIT:
-                continue
-            async_func = inspect.iscoroutinefunction(handler)
-            includes_async_function |= async_func
-            invoking_parts[event] = textwrap.indent("\n" + _INVOKE_HANDLER_TEMPLATE.format(
-                event = event,
-                ctx_update = "\n" + f'ctx_updater("{event}")' if notify_ctx else '',
-                await_ = 'await ' if async_func else '',
-            ),
-            ' ' * (12 if event not in ('on_pause', 'on_resume') else 4)
-            )
-            ns_for_handlers[event] = handler
-        
-        pause_code = textwrap.indent(_PAUSABLE_TEMPLATE.format(
-            on_pause = invoking_parts.get('on_pause', ''),
-            on_resume = invoking_parts.get('on_resume', '')
-        ),' ' * 12) if pausable else ''
-
-        full_code = textwrap.dedent(_CIRCUIT_TEMPLATE.format(
-            async_ = 'async ' if includes_async_function else '',
-            name = circuit_name,
-            should_stop = invoking_parts.get('should_stop', ''),
-            on_tick_before = invoking_parts.get('on_tick_before', ''),
-            on_tick = invoking_parts.get('on_tick', ''),
-            on_tick_after = invoking_parts.get('on_tick_after', ''),
-            on_wait = invoking_parts.get('on_wait', ''),
-            pause_resume = pause_code
-        ))
-
-        
-
-        namespace = {
-            'result_setter': result_setter,
-            'running_manager': running_manager,
-            'running_event': running_event,
-            'Break': break_exc,
-            'HandlerError': handler_err_exc,
-            'CircuitError': circuit_err_exc,
-            **ns_for_handlers
-        }
-        # print("=======================================================")
-        # print(namespace)
-        # print("=======================================================")
-        dst = {}
-        exec(full_code, namespace, dst)
-        return dst[circuit_name], full_code
-
-
-    def _check_state(*expected: int, error_msg: str, notify_closed: bool = True) -> None:
-        if _state in expected:
-            return
-        err_log = f"{error_msg} (expected = {expected}, actual = {_state})"
-        if _state in TERMINAL_STATES and notify_closed:
-            raise HandleClosed(err_log)
-        raise HandleStateError(err_log)
     
-    def _check_mode(*expected: int, error_msg: str) -> None:
-        mode = _running_reader.get_mode()
-        if mode in expected:
-            return
-        raise HandleStateError(f"{error_msg} (expected = {expected}, actual = {mode})")
     
+
 
     def start():
         '''
@@ -528,11 +724,6 @@ except Exception as e:
         _running_setter.set_resume()
 
     # --- explicit handler setters ---
-
-    _Handler = Callable[[Any], Union[Any, Awaitable[Any]]]
-
-    def _check_state_is_load_for_setter(setter):
-        _check_state(LOAD, error_msg=f"{setter.__name__} only allowed in LOAD")
 
     def set_on_start(fn: _Handler): # type: ignore
         _check_state_is_load_for_setter(set_on_start)
