@@ -528,6 +528,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
             ("{}", 'notify'),
             ("result = {}{}(ctx)", 'invoke_handler'),
             ("result_bridge.set_prev(current, result)", 'result_bridge'),
+            "",
         ]
 
         _PAUSABLE_TEMPLATE = [
@@ -537,7 +538,6 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
             "        pauser.clear()",
             "    except Exception as e:",
             "        raise CircuitError(e)",
-            "",
             "if pauser.enter_if_pending_resume():",
             ("{}", 'on_resume'),
             "    pass",
@@ -864,9 +864,12 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
 
 handle = make_loop_engine_handle()
 
+async def on_wait(ctx):
+    print("wait")
+
 # 各ハンドラを登録
-handle.set_on_tick(lambda ctx: print("tick"))
-handle.set_on_wait(lambda ctx: print("wait"))
+handle.set_on_tick(lambda ctx: print("tick"), notify = True)
+handle.set_on_wait(on_wait)
 handle.set_should_stop(lambda ctx: False)
 
 # サーキットコードをダンプ出力
