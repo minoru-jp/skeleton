@@ -173,7 +173,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
                 state.maintain_state(state.LOAD, fn)
 
             @staticmethod
-            def get_hanlder(event):
+            def get_handler(event):
                 return _handlers.get(event, None)
             
             @staticmethod
@@ -469,7 +469,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
                     state_.transit_state(state_.CLOSED)
                 except Exception:
                     logger.exception(f"[{role}] on_closed handler failed")
-                    state_.transit_state(state_.UNCLOSED)
+                    state_.transit_state(state_.UNCLEAN)
                 try:
                     await _invoke_handler('on_result', ctx_updater, ctx)
                     _loop_result = _result_bridge.prev_result
@@ -697,7 +697,6 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
     
     # This function is currently under development.
     # The loop does not start; the purpose here is to inspect the dynamically generated code.
-    print(_circuit_full_code)
     
 
     _meta = SimpleNamespace()
@@ -735,40 +734,29 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
 
         return wrapped()
 
-    def compile():
-        nonlocal _circuit
-        _check_state(LOAD, error_msg="compile() must be called in LOAD state")
-        _circuit, _circuit_code = _compile_circuit(
-        circuit_name='_circuit',
-        handlers=_handlers,
-        notify_ctx=True,
-        result_setter=_result_setter,
-        running_manager=_running_manager,
-        running_event=_running_event,
-        pausable=True,
-        break_exc=Break,
-        handler_err_exc=HandlerError,
-        circuit_err_exc=CircuitError,
-        )
-        #print(_circuit_code)
-
-    def stop():
-        _check_state(ACTIVE, error_msg="stop() must be called in ACTIVE state")
-        if not _loop_task:
-            raise RuntimeError("Cannot call stop(): loop started via ready()"
-                               "and is not externally controllable")
-        if _loop_task and not _loop_task.done():
-            _loop_task.cancel()
+    # def stop():
+    #     _check_state(ACTIVE, error_msg="stop() must be called in ACTIVE state")
+    #     if not _loop_task:
+    #         raise RuntimeError("Cannot call stop(): loop started via ready()"
+    #                            "and is not externally controllable")
+    #     if _loop_task and not _loop_task.done():
+    #         _loop_task.cancel()
     
-    def pause():
-        _check_state(ACTIVE, error_msg="pause() only allowed in ACTIVE")
-        _check_mode(RUNNING, error_msg="pause() only allowed from RUNNING")
-        _running_setter.set_pause()
+    # def pause():
+    #     _check_state(ACTIVE, error_msg="pause() only allowed in ACTIVE")
+    #     _check_mode(RUNNING, error_msg="pause() only allowed from RUNNING")
+    #     _running_setter.set_pause()
 
-    def resume():
-        _check_state(ACTIVE, error_msg="resume() only allowed in ACTIVE")
-        _check_mode(PAUSE, error_msg="resume() only allowed from PAUSE")
-        _running_setter.set_resume()
+    # def resume():
+    #     _check_state(ACTIVE, error_msg="resume() only allowed in ACTIVE")
+    #     _check_mode(PAUSE, error_msg="resume() only allowed from PAUSE")
+    #     _running_setter.set_resume()
+
+    def dump_circuit():
+        code = _circuit_factory.build_circuit_full_code('_dynamic_circuit')
+        # This module is currently under development.
+        # The loop does not start; the purpose here is to inspect the dynamically generated code.
+        print(code)
 
     # --- explicit handler setters ---
     def set_on_start(fn: _Handler, notify=False):  # type: ignore
@@ -841,11 +829,14 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
 
     handle.start = start
     handle.ready = ready
-    handle.stop = stop
-    handle.pause = pause
-    handle.resume = resume
+    # handle.stop = stop
+    # handle.pause = pause
+    # handle.resume = resume
 
-    handle.compile = compile
+    handle.set_pausable = _injected_hook.set_pausable
+
+    #handle.compile = compile
+    handle.dump_circuit = dump_circuit
 
     handle.set_on_start = set_on_start
     handle.set_on_pause = set_on_pause
@@ -867,92 +858,100 @@ def make_loop_engine_handle(role: str = 'loop', logger = None) -> LoopEngineHand
     return handle
 
 
+handle = make_loop_engine_handle()
+
+# 各ハンドラを登録
+handle.set_on_tick(lambda ctx: print("tick"))
+handle.set_on_wait(lambda ctx: print("wait"))
+handle.set_should_stop(lambda ctx: False)
+
+# サーキットコードをダンプ出力
+handle.dump_circuit()
 
 
+# import random
+# from datetime import datetime, timedelta
 
-import random
-from datetime import datetime, timedelta
+# async def main():
 
-async def main():
+#     h = make_loop_engine_handle()
 
-    h = make_loop_engine_handle()
+#     def should_stop(ctx):
+#         if ctx.count >= 1000:
+#             raise ctx.env.signal.Break
 
-    def should_stop(ctx):
-        if ctx.count >= 1000:
-            raise ctx.env.signal.Break
+#     def on_tick(ctx):
+#         print(f'\r{"( ˶°ㅁ°) !!" if ctx.count % 2 == 0 else "!!(°ㅁ°˶ )"} {"|/-\\"[ctx.count % 4]}', end='')
+#         #print(f"{' ' * ctx.count} ┏(‘o’)┛ ┏(‘o’)┛ ┏(‘o’)┛", end ="\r")
+#         #print(' ' + ("tick" if ctx.count % 2 == 0 else "tack") + str(ctx.count), end="\r")
+#         #print(f"{' ' * 30}{'(|)  (0v0)  (|)' if (ctx.count % 2) == 0 else '(\\/) (0v0) (\\/)'}", end="\r")
+#         #print(ctx.count, end="\r")
 
-    def on_tick(ctx):
-        print(f'\r{"( ˶°ㅁ°) !!" if ctx.count % 2 == 0 else "!!(°ㅁ°˶ )"} {"|/-\\"[ctx.count % 4]}', end='')
-        #print(f"{' ' * ctx.count} ┏(‘o’)┛ ┏(‘o’)┛ ┏(‘o’)┛", end ="\r")
-        #print(' ' + ("tick" if ctx.count % 2 == 0 else "tack") + str(ctx.count), end="\r")
-        #print(f"{' ' * 30}{'(|)  (0v0)  (|)' if (ctx.count % 2) == 0 else '(\\/) (0v0) (\\/)'}", end="\r")
-        #print(ctx.count, end="\r")
+#     async def on_wait(ctx):
+#         await asyncio.sleep(0.5)
 
-    async def on_wait(ctx):
-        await asyncio.sleep(0.5)
+#     def on_pause(ctx):
+#         print("pause")
 
-    def on_pause(ctx):
-        print("pause")
-
-    def on_resume(ctx):
-        print("resume!")
+#     def on_resume(ctx):
+#         print("resume!")
     
-    def on_end(ctx):
-        print("end!")
+#     def on_end(ctx):
+#         print("end!")
     
-    def on_stop(ctx):
-        print("stop!")
+#     def on_stop(ctx):
+#         print("stop!")
 
-    def on_handler_exception(ctx):
-        print(ctx.env.exc)
+#     def on_handler_exception(ctx):
+#         print(ctx.env.exc)
     
-    def on_circuit_exception(ctx):
-        print(ctx.env.exc)
+#     def on_circuit_exception(ctx):
+#         print(ctx.env.exc)
     
-    def on_result(ctx):
-        print("on_result")
-        print(ctx.env)
-        print(type(ctx.env.exc))
+#     def on_result(ctx):
+#         print("on_result")
+#         print(ctx.env)
+#         print(type(ctx.env.exc))
     
-    # 必須イベントハンドラを登録（circuitに入るものだけで十分）
-    #h.set_should_stop(dummy_handler)
-    #h.set_on_tick_before(dummy_handler)
-    h.set_should_stop(should_stop)
-    h.set_on_tick(on_tick)
-    #h.set_on_tick_after(dummy_handler)
-    h.set_on_wait(on_wait)
-    #h.set_on_pause(on_pause)
-    #h.set_on_resume(on_resume)
-    #h.set_on_end(on_end)
-    #h.set_on_stop(on_stop)
-    #h.set_on_handler_exception(on_handler_exception)
-    #h.set_on_circuit_exception(on_circuit_exception)
-    #h.set_on_result(on_result)
+#     # 必須イベントハンドラを登録（circuitに入るものだけで十分）
+#     #h.set_should_stop(dummy_handler)
+#     #h.set_on_tick_before(dummy_handler)
+#     h.set_should_stop(should_stop)
+#     h.set_on_tick(on_tick)
+#     #h.set_on_tick_after(dummy_handler)
+#     h.set_on_wait(on_wait)
+#     #h.set_on_pause(on_pause)
+#     #h.set_on_resume(on_resume)
+#     #h.set_on_end(on_end)
+#     #h.set_on_stop(on_stop)
+#     #h.set_on_handler_exception(on_handler_exception)
+#     #h.set_on_circuit_exception(on_circuit_exception)
+#     #h.set_on_result(on_result)
 
-    # コンパイルしてcircuitコードの出力を確認
-    h.compile()
-    #loop_coro = h.ready()  # コルーチンを取得（まだ開始されていない）
-    h.start()
+#     # コンパイルしてcircuitコードの出力を確認
+#     h.compile()
+#     #loop_coro = h.ready()  # コルーチンを取得（まだ開始されていない）
+#     h.start()
 
-    # # 別タスクとしてループ起動
-    # task = asyncio.create_task(loop_coro)
+#     # # 別タスクとしてループ起動
+#     # task = asyncio.create_task(loop_coro)
 
-    # # 1分間だけ実行し、途中で pause/resume をランダムに実行
-    # end_time = datetime.now() + timedelta(seconds=20)
-    # while datetime.now() < end_time:
-    #     await asyncio.sleep(random.uniform(5, 10))  # 5〜10秒おきに発火
-    #     h.pause()
-    #     await asyncio.sleep(random.uniform(2, 4))  # 少し停止してから
-    #     h.resume()
+#     # # 1分間だけ実行し、途中で pause/resume をランダムに実行
+#     # end_time = datetime.now() + timedelta(seconds=20)
+#     # while datetime.now() < end_time:
+#     #     await asyncio.sleep(random.uniform(5, 10))  # 5〜10秒おきに発火
+#     #     h.pause()
+#     #     await asyncio.sleep(random.uniform(2, 4))  # 少し停止してから
+#     #     h.resume()
 
-    # # 最後にループを止める（任意で明示）
-    # task.cancel()
+#     # # 最後にループを止める（任意で明示）
+#     # task.cancel()
 
-    #await task  # ループタスクの終了を待つ
+#     #await task  # ループタスクの終了を待つ
 
-    await asyncio.sleep(30)
+#     await asyncio.sleep(30)
 
-    print("end")
+#     print("end")
 
-# 実行
-asyncio.run(main())
+# # 実行
+# asyncio.run(main())
