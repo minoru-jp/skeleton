@@ -233,8 +233,8 @@ def make_loop_engine_handle(role: str = 'loop', logger = None):
             @staticmethod
             def get_circuit_context_updater_factory():
                 return _circuit_ctx_updater_factory
-            @staticmethod
-            def circuit_is_pausable():
+            @property
+            def circuit_is_pausable(_):
                 return _pausable
 
         _interface = Interface()
@@ -601,6 +601,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None):
             "    try:",
             "        while True:",
             ("{}", 'actions'),
+            ("{}", 'pausable'),
             "    except Break as e:",
             "        pass",
             "    except CircuitError as e:",
@@ -715,10 +716,10 @@ def make_loop_engine_handle(role: str = 'loop', logger = None):
                     case 'pausable':
                         if pausable_snippet:
                             lines.extend(INDENT + p for p in pausable_snippet)
-                    case _:
-                        snip = action_snippets.get(tag, None)
-                        if snip:
-                            lines.extend(INDENT + h for h in snip)
+                    case 'actions':
+                        for _, snip in action_snippets.items():
+                            lines.extend(INDENT + s for s in snip)
+
                 
             return _build_template(_CIRCUIT_TEMPLATE, _tag_processor)
 
@@ -728,20 +729,20 @@ def make_loop_engine_handle(role: str = 'loop', logger = None):
             # Has no interface
             
             @staticmethod
-            def build_circuit_full_code(name):
+            def build_circuit_full_code(circuit_name):
                 nonlocal _circuit_full_code
                 includes_async_function = False
-                linear_handler_snippets = {}
+                actions_snippets = {}
                 for label, action in injected_hook.get_actions().items():
                     # deploy action: (action, raw_name, notify_ctx)
                     action, raw_name, notify_ctx = action
                     async_func = inspect.iscoroutinefunction(action)
                     includes_async_function |= async_func
-                    linear_handler_snippets[label] =\
+                    actions_snippets[label] =\
                         _build_invoke_action(label, raw_name, notify_ctx, async_func)
                 
                 pauser_handler_snippets = {}
-                for name, handler in injected_hook.get_phase_handlers().items():
+                for name, handler in injected_hook.get_interrupt_handlers().items():
                     if not handler or name not in _PAUSER_HANDLER_IN_CIRCUIT:
                         continue
                     # deploy handler: (handler, notify_ctx)
@@ -756,8 +757,8 @@ def make_loop_engine_handle(role: str = 'loop', logger = None):
                 ) if injected_hook.circuit_is_pausable else None
 
                 all_snippets = _build_circuit(
-                    name, includes_async_function,
-                    linear_handler_snippets, pausable_snippet
+                    circuit_name, includes_async_function,
+                    actions_snippets, pausable_snippet
                 )
 
                 _circuit_full_code = "\n".join(all_snippets)
@@ -810,11 +811,18 @@ def make_loop_engine_handle(role: str = 'loop', logger = None):
             def interface(_):
                 return _interface
             @staticmethod
-            def start(async_fn):
+            def start(fn, *fn_args, **fn_kwargs):
+
                 def create_task():
                     nonlocal _task
-                    _task = asyncio.create_task(async_fn)
+                    async def wrapper():
+                        result = fn(*fn_args, **fn_kwargs)
+                        if inspect.isawaitable(result):
+                            return await result
+                        return result
+                    _task = asyncio.create_task(wrapper())
                     return _task
+                
                 return state.transit_state_with(state.ACTIVE, create_task)
         
         return TaskControl()
@@ -848,7 +856,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None):
         @staticmethod
         def start(_):
             return _task_control.start(
-                _loop_environment.loop_engine(_circuit_factory.compile()))
+                _loop_environment.loop_engine, _circuit_factory.compile())
         @property
         def stop(_):
             return _task_control.stop
@@ -965,15 +973,28 @@ def make_loop_engine_handle(role: str = 'loop', logger = None):
     return Handle()
 
 if __name__ == "__main__":
-
+    import SimpleNamespace
     handle = make_loop_engine_handle("test")
 
-    # 最低限必要な on_start/on_end のセット
     handle.set_on_start(lambda ctx: print("[on_start]"))
     handle.set_on_end(lambda ctx: print("[on_end]"))
 
-    # 最低限のアクションを1つ追加
-    handle.append_action("hello", lambda ctx: print("hello action"))
+    handle.set_on_pause(lambda ctx: print("[on_pause]"), notify_ctx = False)
+    handle.set_on_resume(lambda ctx: print("[on_resume]"), notify_ctx = True)
 
-    # ダンプ実行（生成されたコードが print される）
+    def cotext_updater_factory(loop_interface):
+        ctx = SimpleNamespace()
+        ctx.count = 0
+        def context_updater(event):
+            ctx.count += 1
+            return ctx
+        return context_updater, ctx
+
+    def action(ctx):
+
+        
+
+        asyncio.sleep(1)
+
+
     handle.dump_full_code()
