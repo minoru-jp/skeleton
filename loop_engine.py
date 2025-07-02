@@ -3,6 +3,7 @@ import asyncio
 import inspect
 import logging
 
+import string
 from types import MappingProxyType
 
 def make_loop_engine_handle(role: str = 'loop', logger = None):
@@ -186,6 +187,8 @@ def make_loop_engine_handle(role: str = 'loop', logger = None):
         #         return circuit_context
         #     return circuit_context_updater, circuit_context
         
+        ACTION_SUFFIX = '_action'
+        MAX_ACTIONS = 26**3
 
         _phase_handlers = {}
         _interrupt_handlers = {} # tuple: (handler, notify_ctx)
@@ -196,6 +199,21 @@ def make_loop_engine_handle(role: str = 'loop', logger = None):
         _loop_ctx_updater_factory = _DEFAULT_CONTEXT_UPDATER_FACTORY
         _circuit_ctx_updater_factory = None
         _pausable = True
+
+        def _label_action_by_index():
+            index = len(_linear_actions_in_circuit)
+            if index >= MAX_ACTIONS:
+                raise ValueError(
+                    f"Too many actions: supports up to {MAX_ACTIONS}, got {index}")
+            
+            result = ""
+            for _ in range(3):
+                result = string.ascii_lowercase[index % 26] + result
+                index //= 26
+                if index == 0:
+                    break
+            result = result + ACTION_SUFFIX
+            return result
 
         class Interface:
             __slots__ = ()
@@ -242,9 +260,9 @@ def make_loop_engine_handle(role: str = 'loop', logger = None):
             
             @staticmethod
             def append_action(name, fn, notify_ctx):
-                if not name.isidentifier():
-                    raise ValueError(f"'{name}' is not a valid Python identifier")
-                def add_action(): _linear_actions_in_circuit[name] = (fn, notify_ctx)
+                def add_action():
+                    label = _label_action_by_index()
+                    _linear_actions_in_circuit[label] = (str(name), fn, notify_ctx)
                 state.maintain_state(state.LOAD, add_action)
             
             @staticmethod
@@ -790,17 +808,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None):
                 return state.transit_state_with(state.ACTIVE, create_task)
         
         return TaskControl()
-    
-    
-    #==================================================================================
-    # def _static_circuit(ctx_updater, ctx, result_bridge, pauser):
-    #     ...
-    # If a circuit with this name is defined, _load_circuit_factory will be skipped,
-    # and the loop will start directly using the predefined circuit.
-    # This serves as a placeholder for hardcoding a generated circuit.
-    # If _static_circuit is defined and _load_circuit_factory is no longer used,
-    # the _load_circuit_factory function can be safely removed from the codebase.
-    #==================================================================================
+
 
     STATIC_CIRCUIT_NAME = '_static_circuit'
 
