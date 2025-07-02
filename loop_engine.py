@@ -173,6 +173,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None):
         
         return State()
     
+
     def _load_loop_cofig(spec, state):
         
         def _DEFAULT_CONTEXT_UPDATER_FACTORY(loop_interface):
@@ -194,7 +195,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None):
         _interrupt_handlers = {} # tuple: (handler, notify_ctx)
         
         # Requires Python 3.7+ for guaranteed insertion order
-        _linear_actions_in_circuit = {} # tuple: (hadler, notify_ctx)
+        _linear_actions_in_circuit = {} # tuple: (hadler, raw_name, notify_ctx)
         
         _loop_ctx_updater_factory = _DEFAULT_CONTEXT_UPDATER_FACTORY
         _circuit_ctx_updater_factory = None
@@ -262,7 +263,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None):
             def append_action(name, fn, notify_ctx):
                 def add_action():
                     label = _label_action_by_index()
-                    _linear_actions_in_circuit[label] = (str(name), fn, notify_ctx)
+                    _linear_actions_in_circuit[label] = (fn, str(name), notify_ctx)
                 state.maintain_state(state.LOAD, add_action)
             
             @staticmethod
@@ -285,6 +286,11 @@ def make_loop_engine_handle(role: str = 'loop', logger = None):
                     nonlocal _pausable
                     _pausable = flag
                 state.maintain_state(state.LOAD, fn)
+            
+            @staticmethod
+            def build_action_namespace():
+                # l = lable, v = action func
+                return {k :v(0) for k, v in _linear_actions_in_circuit.items()}
 
         return LoopConfig()
 
@@ -581,6 +587,9 @@ def make_loop_engine_handle(role: str = 'loop', logger = None):
             @property
             def interface(_):
                 return _interface
+            @property
+            def loop_engine(_):
+                return _loop_engine
         
         return LoopEnvironment()
 
@@ -649,20 +658,18 @@ def make_loop_engine_handle(role: str = 'loop', logger = None):
                         tag_processor(lines, code, tag)
             return lines
         
-        def _build_invoke_action(event, notify, await_):
+        def _build_invoke_action(label, raw_name, notify, await_):
             def _tag_processor(lines, code, tag):
                 match(tag):
-                    case 'current_event':
-                        lines.append(code.format(event))
                     case 'notify':
                         if notify:
                             lines.append(
-                                    code.format(f"ctx_updater('{event}')"))
+                                    code.format(f"ctx_updater('{raw_name}')"))
                     case 'invoke_handler':
                         lines.append(
-                            code.format("await " if await_ else "", event))
+                            code.format("await " if await_ else "", label))
                     case 'result_bridge':
-                        lines.append(code.format(f"'{event}'"))
+                        lines.append(code.format(f"'{raw_name}'"))
                     case _:
                         raise ValueError(f"Unknown tag in template: {tag}")
             
@@ -725,9 +732,9 @@ def make_loop_engine_handle(role: str = 'loop', logger = None):
                 nonlocal _circuit_full_code
                 includes_async_function = False
                 linear_handler_snippets = {}
-                for name, action in injected_hook.get_actions.items():
-                    # deploy action: (action, notify_ctx)
-                    action, notify_ctx = action
+                for label, action in injected_hook.get_actions.items():
+                    # deploy action: (action, raw_name, notify_ctx)
+                    action, raw_name, notify_ctx = action
                     async_func = inspect.iscoroutinefunction(action)
                     includes_async_function |= async_func
                     linear_handler_snippets[name] =\
@@ -835,9 +842,10 @@ def make_loop_engine_handle(role: str = 'loop', logger = None):
         def role(_):
             return role
         
-        @property
+        @staticmethod
         def start(_):
-            return _task_control.start
+            return _task_control.start(
+                _loop_environment.loop_engine(_circuit_factory.compile()))
         @property
         def stop(_):
             return _task_control.stop
