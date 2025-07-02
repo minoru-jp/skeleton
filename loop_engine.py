@@ -284,8 +284,6 @@ def make_loop_engine_handle(role: str = 'loop', logger = None):
 
         PENDING_RESULT = object()
         NO_RESULT = object()
-
-        _loop_task = None
         
         _prev_event = None
         _prev_result = None
@@ -303,9 +301,8 @@ def make_loop_engine_handle(role: str = 'loop', logger = None):
 
         def clean_environment():
             nonlocal\
-                _loop_task, _prev_event, _prev_result, _event, _exc, _nested_exc,\
+                _prev_event, _prev_result, _event, _exc, _nested_exc,\
                 _mode, _pending_pause, _pending_resume
-            _loop_task = None
             _prev_event = None
             _prev_result = None
             _event = None
@@ -413,9 +410,6 @@ def make_loop_engine_handle(role: str = 'loop', logger = None):
                 nonlocal _pending_resume
                 _pending_resume = True
                 _event.set()
-            @property
-            def current_mode(_):
-                return _mode
 
         _pauser = Pauser()
 
@@ -429,7 +423,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None):
             def PAUSE(_):
                 return PAUSE
             @property
-            def current(_):
+            def current_mode(_):
                 return _mode
             @property
             def pending_pause(_):
@@ -439,7 +433,6 @@ def make_loop_engine_handle(role: str = 'loop', logger = None):
                 return _pauser.pending_resume
         
         _mode_reader = ModeReader()
-
 
         class Interface:
 
@@ -458,21 +451,23 @@ def make_loop_engine_handle(role: str = 'loop', logger = None):
 
             __slots__ = ()
             @property
-            def role(_):
-                return role
+            def RUNNING(_):
+                return _mode_reader.RUNNING
             @property
-            def current_state(_):
-                return state.current_state
+            def PAUSE(_):
+                return _mode_reader.PAUSE
             @property
             def mode(_):
-                return _mode_reader
+                return _mode_reader.current_mode
             @property
-            def result_reader(_):
-                return _handler_result_reader
+            def pause(_):
+                return _pauser.pause
             @property
-            def task(_):
-                return _loop_task
-        
+            def resume(_):
+                return _pauser.resume
+            @property
+            def result(_):
+                return _loop_result_reader
 
         _interface = Interface()
 
@@ -563,17 +558,11 @@ def make_loop_engine_handle(role: str = 'loop', logger = None):
                     # Cleanup closure states
                     clean_environment()
 
-        class LoopEnvironment:
+        class LoopEnvironment(Interface):
             __slots__ = ()
             @property
             def interface(_):
                 return _interface
-            @property
-            def pauser(_):
-                return _pauser
-            @property
-            def result_reader(_):
-                return _loop_result_reader
         
         return LoopEnvironment()
 
@@ -632,93 +621,87 @@ def make_loop_engine_handle(role: str = 'loop', logger = None):
         _circuit_full_code = None
         _generated_circuit = None
 
+        def _build_template(template, tag_processor):
+            lines = []
+            for line in template:
+                match(line):
+                    case str() as code:
+                        lines.append(code)
+                    case (code, tag):
+                        tag_processor(lines, code, tag)
+            return lines
+        
+        def _build_invoke_action(event, notify, await_):
+            def _tag_processor(lines, code, tag):
+                match(tag):
+                    case 'current_event':
+                        lines.append(code.format(event))
+                    case 'notify':
+                        if notify:
+                            lines.append(
+                                    code.format(f"ctx_updater('{event}')"))
+                    case 'invoke_handler':
+                        lines.append(
+                            code.format("await " if await_ else "", event))
+                    case 'result_bridge':
+                        lines.append(code.format(f"'{event}'"))
+                    case _:
+                        raise ValueError(f"Unknown tag in template: {tag}")
+            
+            return _build_template(_INVOKE_ACTION_TEMPLATE, _tag_processor)
+        
+        def _build_invoke_pauser_handler(event, notify, await_):
+            def _tag_processor(lines, code, tag):
+                match(tag):
+                    case 'current_event':
+                        lines.append(code.format(event))
+                    case 'notify':
+                        if notify:
+                            lines.append(
+                                    code.format(f"ctx_updater('{event}')"))
+                    case 'invoke_handler':
+                        lines.append(
+                            code.format("await " if await_ else "", event))
+                    case _:
+                        raise ValueError(f"Unknown tag in template: {tag}")
+            
+            return _build_template(_INVOKE_PAUSER_HANDLER_TEMPLATE, _tag_processor)
+        
+        def _build_pausable(handler_snippets):
+            def _tag_processor(lines, code, tag):
+                INDENT = ' ' * _EVENT_IN_PAUSABLE_INDENT
+                match(tag):
+                    case _:
+                        snip = handler_snippets.get(tag, None)
+                        if snip:
+                            lines.extend(INDENT + s for s in snip)
+                        elif tag == spec.RESUME:
+                            lines.append('    pass')
+
+            return _build_template(_PAUSABLE_TEMPLATE, _tag_processor)
+        
+        def _build_circuit(name, as_async, action_snippets, pausable_snippet):
+            def _tag_processor(lines, code, tag):
+                INDENT = ' ' * _EVENT_IN_CIRCUIT_INDENT
+                match(tag):
+                    case 'define':
+                        prefix = 'async ' if as_async else ''
+                        lines.append(code.format(prefix, name))
+                    case 'pausable':
+                        if pausable_snippet:
+                            lines.extend(INDENT + p for p in pausable_snippet)
+                    case _:
+                        snip = action_snippets.get(tag, None)
+                        if snip:
+                            lines.extend(INDENT + h for h in snip)
+                
+            return _build_template(_CIRCUIT_TEMPLATE, _tag_processor)
+
+
         class CircuitFactory:
             __slots__ = ()
-            @staticmethod
-            def _build_template(template, tag_processor):
-                lines = []
-                for line in template:
-                    match(line):
-                        case str() as code:
-                            lines.append(code)
-                        case (code, tag):
-                            tag_processor(lines, code, tag)
-                return lines
+            # Has no interface
             
-            @staticmethod
-            def _build_invoke_action(event, notify, await_):
-                def _tag_processor(lines, code, tag):
-                    match(tag):
-                        case 'current_event':
-                            lines.append(code.format(event))
-                        case 'notify':
-                            if notify:
-                                lines.append(
-                                        code.format(f"ctx_updater('{event}')"))
-                        case 'invoke_handler':
-                            lines.append(
-                                code.format("await " if await_ else "", event))
-                        case 'result_bridge':
-                            lines.append(code.format(f"'{event}'"))
-                        case _:
-                            raise ValueError(f"Unknown tag in template: {tag}")
-                
-                return CircuitFactory._build_template(
-                   _INVOKE_ACTION_TEMPLATE, _tag_processor)
-            
-            @staticmethod
-            def _build_invoke_pauser_handler(event, notify, await_):
-                def _tag_processor(lines, code, tag):
-                    match(tag):
-                        case 'current_event':
-                            lines.append(code.format(event))
-                        case 'notify':
-                            if notify:
-                                lines.append(
-                                        code.format(f"ctx_updater('{event}')"))
-                        case 'invoke_handler':
-                            lines.append(
-                                code.format("await " if await_ else "", event))
-                        case _:
-                            raise ValueError(f"Unknown tag in template: {tag}")
-                
-                return CircuitFactory._build_template(
-                   _INVOKE_PAUSER_HANDLER_TEMPLATE, _tag_processor)
-            
-            @staticmethod
-            def _build_pausable(handler_snippets):
-                def _tag_processor(lines, code, tag):
-                    INDENT = ' ' * _EVENT_IN_PAUSABLE_INDENT
-                    match(tag):
-                        case _:
-                            snip = handler_snippets.get(tag, None)
-                            if snip:
-                                lines.extend(INDENT + s for s in snip)
-                            elif tag == spec.RESUME:
-                                lines.append('    pass')
-
-                return CircuitFactory._build_template(
-                    _PAUSABLE_TEMPLATE, _tag_processor)
-            
-            @staticmethod
-            def _build_circuit(name, as_async, action_snippets, pausable_snippet):
-                def _tag_processor(lines, code, tag):
-                    INDENT = ' ' * _EVENT_IN_CIRCUIT_INDENT
-                    match(tag):
-                        case 'define':
-                            prefix = 'async ' if as_async else ''
-                            lines.append(code.format(prefix, name))
-                        case 'pausable':
-                            if pausable_snippet:
-                                lines.extend(INDENT + p for p in pausable_snippet)
-                        case _:
-                            snip = action_snippets.get(tag, None)
-                            if snip:
-                                lines.extend(INDENT + h for h in snip)
-                    
-                return CircuitFactory._build_template(
-                _CIRCUIT_TEMPLATE, _tag_processor)
-
             @staticmethod
             def build_circuit_full_code(name):
                 nonlocal _circuit_full_code
@@ -730,8 +713,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None):
                     async_func = inspect.iscoroutinefunction(action)
                     includes_async_function |= async_func
                     linear_handler_snippets[name] =\
-                        CircuitFactory._build_invoke_action(
-                            name, notify_ctx, async_func)
+                        _build_invoke_action(name, notify_ctx, async_func)
                 
                 pauser_handler_snippets = {}
                 for name, handler in injected_hook.get_phase_handlers().items():
@@ -742,14 +724,13 @@ def make_loop_engine_handle(role: str = 'loop', logger = None):
                     async_func = inspect.iscoroutinefunction(handler)
                     includes_async_function |= async_func
                     pauser_handler_snippets[name] =\
-                        CircuitFactory._build_invoke_pauser_handler(
-                            name, notify_ctx, async_func)
+                        _build_invoke_pauser_handler(name, notify_ctx, async_func)
                 
-                pausable_snippet = CircuitFactory._build_pausable(
+                pausable_snippet = _build_pausable(
                     pauser_handler_snippets
                 ) if injected_hook.circuit_is_pausable else None
 
-                all_snippets = CircuitFactory._build_circuit(
+                all_snippets = _build_circuit(
                     name, includes_async_function,
                     linear_handler_snippets, pausable_snippet
                 )
@@ -765,9 +746,9 @@ def make_loop_engine_handle(role: str = 'loop', logger = None):
                     CircuitFactory.build_circuit_full_code(CIRCUIT_NAME)
                 
                 namespace = {
-                    "HandlerError": loop_env.interface.HandlerError,
-                    "CircuitError": loop_env.interface.CircuitError,
-                    "Break": loop_env.interface.Break,
+                    "HandlerError": loop_env.HandlerError,
+                    "CircuitError": loop_env.CircuitError,
+                    "Break": loop_env.Break,
                 }
                 dst = {}
                 exec(_circuit_full_code, namespace, dst)
@@ -780,16 +761,8 @@ def make_loop_engine_handle(role: str = 'loop', logger = None):
 
         _task = None
 
-        class TaskControl:
+        class Interface:
             __slots__ = ()
-            @staticmethod
-            def start(async_fn):
-                def create_task():
-                    nonlocal _task
-                    _task = asyncio.create_task(async_fn)
-                    return _task
-                return state.transit_state_with(state.ACTIVE, create_task)
-            
             @property
             def is_running(_):
                 return _task is not None and not _task.done()
@@ -800,6 +773,21 @@ def make_loop_engine_handle(role: str = 'loop', logger = None):
                     if TaskControl.is_running:
                         _task.cancel()
                 return state.maintain_state(state.ACTIVE, cancel_task)
+        
+        _interface = Interface()
+
+        class TaskControl(Interface):
+            __slots__ = ()
+            @property
+            def interface(_):
+                return _interface
+            @staticmethod
+            def start(async_fn):
+                def create_task():
+                    nonlocal _task
+                    _task = asyncio.create_task(async_fn)
+                    return _task
+                return state.transit_state_with(state.ACTIVE, create_task)
         
         return TaskControl()
     
@@ -929,10 +917,10 @@ def make_loop_engine_handle(role: str = 'loop', logger = None):
         
         @property
         def current_mode(_):
-            return _loop_environment.interface.mode.current
+            return _loop_environment.interface.mode.current_mode
         @property
         def is_paused(_):
-            return _loop_environment.interface.mode.current ==\
+            return _loop_environment.interface.mode.current_mode ==\
                      _loop_environment.interface.mode.PAUSE
         @property
         def pause_pending(_):
