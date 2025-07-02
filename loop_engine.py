@@ -854,7 +854,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None):
             return role
         
         @staticmethod
-        def start(_):
+        def start():
             return _task_control.start(
                 _loop_environment.loop_engine, _circuit_factory.compile())
         @property
@@ -973,7 +973,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None):
     return Handle()
 
 if __name__ == "__main__":
-    import SimpleNamespace
+    from types import SimpleNamespace
     handle = make_loop_engine_handle("test")
 
     handle.set_on_start(lambda ctx: print("[on_start]"))
@@ -985,16 +985,18 @@ if __name__ == "__main__":
     def cotext_updater_factory(loop_interface):
         ctx = SimpleNamespace()
         ctx.count = 0
+        ctx.loop_interface = loop_interface
         def context_updater(event):
             ctx.count += 1
             return ctx
         return context_updater, ctx
 
-    def action(ctx):
+    async def action(ctx):
+        print('tick' + '!' * ctx.count)
+        if ctx.count > 10:
+            raise ctx.loop_interface.Break
+        await asyncio.sleep(1)
 
-        
+    handle.append_action('tick_and_stop', action, notify_ctx = True)
 
-        asyncio.sleep(1)
-
-
-    handle.dump_full_code()
+    handle.start()
