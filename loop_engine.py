@@ -289,8 +289,8 @@ def make_loop_engine_handle(role: str = 'loop', logger = None):
             
             @staticmethod
             def build_action_namespace():
-                # l = lable, v = action func
-                return {k :v(0) for k, v in _linear_actions_in_circuit.items()}
+                # l = lable, t = tuple(action func, raw_name, notify_ctx)
+                return {l :t[0] for l, t in _linear_actions_in_circuit.items()}
 
         return LoopConfig()
 
@@ -732,13 +732,13 @@ def make_loop_engine_handle(role: str = 'loop', logger = None):
                 nonlocal _circuit_full_code
                 includes_async_function = False
                 linear_handler_snippets = {}
-                for label, action in injected_hook.get_actions.items():
+                for label, action in injected_hook.get_actions().items():
                     # deploy action: (action, raw_name, notify_ctx)
                     action, raw_name, notify_ctx = action
                     async_func = inspect.iscoroutinefunction(action)
                     includes_async_function |= async_func
-                    linear_handler_snippets[name] =\
-                        _build_invoke_action(name, notify_ctx, async_func)
+                    linear_handler_snippets[label] =\
+                        _build_invoke_action(label, raw_name, notify_ctx, async_func)
                 
                 pauser_handler_snippets = {}
                 for name, handler in injected_hook.get_phase_handlers().items():
@@ -771,9 +771,12 @@ def make_loop_engine_handle(role: str = 'loop', logger = None):
                     CircuitFactory.build_circuit_full_code(CIRCUIT_NAME)
                 
                 namespace = {
+                    "__builtins__" : {},
+                    "Exception": Exception,
                     "HandlerError": loop_env.HandlerError,
                     "CircuitError": loop_env.CircuitError,
                     "Break": loop_env.Break,
+                    **injected_hook.build_action_namespace(),
                 }
                 dst = {}
                 exec(_circuit_full_code, namespace, dst)
@@ -960,3 +963,17 @@ def make_loop_engine_handle(role: str = 'loop', logger = None):
             return dump_circuit
 
     return Handle()
+
+if __name__ == "__main__":
+
+    handle = make_loop_engine_handle("test")
+
+    # 最低限必要な on_start/on_end のセット
+    handle.set_on_start(lambda ctx: print("[on_start]"))
+    handle.set_on_end(lambda ctx: print("[on_end]"))
+
+    # 最低限のアクションを1つ追加
+    handle.append_action("hello", lambda ctx: print("hello action"))
+
+    # ダンプ実行（生成されたコードが print される）
+    handle.dump_full_code()
