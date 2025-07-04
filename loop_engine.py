@@ -365,12 +365,24 @@ class LoopResult(Protocol):
     def NO_RESULT(self) -> object: ...
     @staticmethod
     def set_loop_result(obj: Any) -> None: ...
+    @property
+    def loop_result(_) -> Any: ...
     @staticmethod
-    def get_loop_result() -> Any: ...
+    def set_circuit_error(e: Exception) -> None: ...
     @staticmethod
-    def set_exception(tag: str, e: Exception) -> None: ...
+    def set_event_reactor_error(e: Exception) -> None: ...
     @staticmethod
-    def get_exception(tag: str) -> Exception | None: ...
+    def set_handler_error(e: Exception) -> None: ...
+    @staticmethod
+    def set_internal_error(e: Exception) -> None: ...
+    @property
+    def circuit_error(_) -> Exception: ...
+    @property
+    def event_reactor_error(_) -> Exception: ...
+    @property
+    def handler_error(_) -> Exception: ...
+    @property
+    def internal_error(_) -> Exception: ...
     @staticmethod
     def cleanup() -> None: ...
 
@@ -383,9 +395,12 @@ def _setup_loop_result() -> LoopResult:
     # not target of cleanup
     _loop_result = _PENDING_RESULT
     
-    _exceptions = {} # tag: e
+    _circuit_error = None
+    _event_reactor_error = None
+    _handler_error = None
+    _internal_error = None
 
-    class _LoopResult:
+    class _LoopResult(LoopResult):
         __slots__ = ()
         @property
         def PENDING_RESULT(_):
@@ -397,21 +412,46 @@ def _setup_loop_result() -> LoopResult:
         def set_loop_result(obj):
             nonlocal _loop_result
             _loop_result = obj
-        @staticmethod
-        def get_loop_result():
+        @property
+        def loop_result():
             return _loop_result
         @staticmethod
-        def set_exception(tag, e):
-            _exceptions[tag] = e
+        def set_circuit_error(e: Exception) -> None:
+            nonlocal _circuit_error
+            _circuit_error = e
         @staticmethod
-        def get_exception(key):
-            return _exceptions.get(key, None)
+        def set_event_reactor_error(e: Exception) -> None:
+            nonlocal _event_reactor_error
+            _event_reactor_error = e
+        @staticmethod
+        def set_handler_error(e: Exception) -> None:
+            nonlocal _handler_error
+            _handler_error = e
+        @staticmethod
+        def set_internal_error(e: Exception) -> None:
+            nonlocal _internal_error
+            _internal_error = e
+        @property
+        def circuit_error(_):
+            return _circuit_error
+        @property
+        def event_reactor_error(_):
+            return _event_reactor_error
+        @property
+        def handler_error(_):
+            return _handler_error
+        @property
+        def internal_error(_):
+            return _internal_error
         @staticmethod
         def cleanup():
-            nonlocal _loop_result, _exceptions
+            nonlocal _loop_result, _circuit_error, _event_reactor_error,\
+                _handler_error, _internal_error
             _loop_result = None
-            _exceptions.clear()
-            _exceptions = None
+            _circuit_error = None
+            _event_reactor_error = None
+            _handler_error = None
+            _internal_error = None
     
     return _LoopResult()
 
