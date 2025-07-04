@@ -546,6 +546,7 @@ def _setup_loop_interrupt(state: State) -> LoopInterrupt:
 
 @runtime_checkable
 class LoopError(Protocol):
+    EventReactorError: Type[Exception]
     HandlerError: Type[Exception]
     CircuitError: Type[Exception]
 
@@ -564,30 +565,35 @@ class LoopException(Protocol):
     def signal(self) -> LoopSignal: ...
 
 def _setup_loop_exception() -> LoopException:
-    class _LoopError:
+    class _LoopError(LoopError):
         __slots__ = ()
-        class HandlerError(Exception):
-            def __init__(self, tag, exception):
+        class EventReactorError(Exception):
+            def __init__(self, tag, e):
                 super().__init__()
                 self.event = tag
-                self.orig_exception = exception
+                self.orig_exception = e
+        class HandlerError(Exception):
+            def __init__(self, tag, e):
+                super().__init__()
+                self.event = tag
+                self.orig_exception = e
 
         class CircuitError(Exception):
-            def __init__(self, exception):
-                self.orig_exception = exception
+            def __init__(self, e):
+                self.orig_exception = e
     
-    class _LoopSignal:
+    class _LoopSignal(LoopSignal):
         __slots__ = ()
         class Break(Exception):
             pass
     
-    class _LoopException:
+    class _LoopException(LoopException):
         __slots__ = ()
         @property
-        def error(_):
+        def error(_) -> LoopError:
             return _LoopError
         @property
-        def signal(_):
+        def signal(_) -> LoopSignal:
             return _LoopSignal
     
     return _LoopException()
@@ -641,6 +647,8 @@ def _setup_task_control(state: State) -> TaskControl:
 
 @runtime_checkable
 class LoopControl(Protocol):
+    @property
+    def exceptions(_) -> LoopException: ...
     @property
     def event_result(_) -> ResultBridge: ...
     @property
@@ -725,7 +733,7 @@ def make_loop_engine_handle(circuit):
     async def _loop_engine(
             role: str, logger: logging.Logger,
             circuit, ev: LoopEvent, control: LoopControl,
-            exc: LoopException) -> None:
+            res: LoopResult) -> None:
         try:
             control.setup_event_context()
             try:
@@ -735,12 +743,12 @@ def make_loop_engine_handle(circuit):
                     try:
                         await circuit(control)
                     except Exception as e:
-                        raise exc.error.CircuitError(e)
+                        raise control.exceptions.error.CircuitError(e)
                 else:
                     try:
                         circuit(control)
                     except Exception as e:
-                        raise exc.error.CircuitError(e)
+                        raise control.exceptions.error.CircuitError(e)
                 await control.process_event(ev.STOP_NORMALLY)
             except asyncio.CancelledError as e:
                 logger.info(f"[{role}] Loop was cancelled")
@@ -748,20 +756,20 @@ def make_loop_engine_handle(circuit):
             finally:
                 await control.process_event(ev.CLEANUP)
                 await control.process_event(ev.LOOP_RESULT)
-                control.set_loop_result(control.event_result.get_prev_result())
-        except exc.error.CircuitError as e:
+                res.set_loop_result(control.event_result.get_prev_result())
+        except control.exceptions.error.CircuitError as e:
             # Exceptions thrown by action reactor are included here.
-            control.set_circuit_error(e)
+            res.set_circuit_error(e)
             raise
-        except exc.error.EventReactorError as e:
-            control.set_event_reactor_error(e)
+        except control.exceptions.error.EventReactorError as e:
+            res.set_event_reactor_error(e)
             raise
-        except exc.error.HandlerError as e:
-            control.set_handler_error(e)
+        except control.exceptions.error.HandlerError as e:
+            res.set_handler_error(e)
             raise
         except Exception as e:
             logger.critical(f"[{role}] Internal error: {e.__class__.__name__}")
-            control.set_internal_error(e)
+            res.set_internal_error(e)
             raise
         finally:
             control.cleanup()
