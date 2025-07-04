@@ -461,16 +461,13 @@ class ResultBridge(Protocol):
     def UNSET(self) -> object:
         ...
     @staticmethod
-    def set_prev(tag: str, result: Any) -> None:
+    def set_prev_result(tag: str, result: Any) -> None:
         ...
-    @staticmethod
-    def get_prev_tag() -> str:
+    @property
+    def prev_tag() -> str:
         ...
-    @staticmethod
-    def get_prev_result() -> Any:
-        ...
-    @staticmethod
-    def forward(other: "ResultBridge") -> None:
+    @property
+    def prev_result() -> Any:
         ...
 
 def _setup_result_bridge() -> ResultBridge:
@@ -486,7 +483,7 @@ def _setup_result_bridge() -> ResultBridge:
         def UNSET(_):
             return _UNSET
         @staticmethod
-        def set_prev(tag: str, result: Any):
+        def set_prev_result(tag: str, result: Any):
             nonlocal _prev_tag, _prev_result
             _prev_tag = tag
             _prev_result = result
@@ -496,9 +493,6 @@ def _setup_result_bridge() -> ResultBridge:
         @staticmethod
         def get_prev_result(_):
             return _prev_result
-        @staticmethod
-        def forward(to: ResultBridge):
-            to.set_prev(_prev_tag, _prev_result)
 
     return _ResultBridge()
 
@@ -690,9 +684,9 @@ class LoopControl(Protocol):
     @property
     def exceptions(_) -> LoopException: ...
     @property
-    def event_result(_) -> ResultBridge: ...
+    def event(_) -> ResultBridge: ...
     @property
-    def action_result(_) -> ResultBridge: ...
+    def action(_) -> ResultBridge: ...
     @staticmethod
     async def process_event(event: str) -> None: ...
     @staticmethod
@@ -720,21 +714,23 @@ def _setup_loop_control(
     class _LoopControl(LoopControl):
         __slots__ = ()
         @property
-        def event_result(_):
+        def event(_):
             return _event_result_bridge
         @property
-        def action_result(_):
+        def action(_):
             return _action_result_bridge
         @staticmethod
         def setup_event_context() -> None:
             nonlocal _event_reactor, _event_context
-            _event_reactor, _event_context = context.get_event_reactor_factory()(_self)
+            _event_reactor, _event_context =\
+                context.get_event_reactor_factory()(_self)
         @staticmethod
         def setup_action_context() -> None:
             nonlocal _action_reactor, _action_context
-            _action_reactor, _action_context = context.get_action_reactor_factory()(_self)
+            _action_reactor, _action_context =\
+                  context.get_action_reactor_factory()(_self)
         @staticmethod
-        async def process_event(event: str):
+        async def process_event(event: str) -> None:
             handler = _all_event_handlers.get(event, None)
             if not handler:
                 return
@@ -758,7 +754,7 @@ def _setup_loop_control(
                     result = handler(_event_context)
                 except Exception as e:
                     raise _exc.error.HandlerError(event, e)
-            _event_result_bridge.set_prev(event, result)
+            _event_result_bridge.set_prev_result(event, result)
     
     _self = _LoopControl()
 
@@ -796,7 +792,7 @@ def make_loop_engine_handle(circuit):
             finally:
                 await control.process_event(ev.CLEANUP)
                 await control.process_event(ev.LOOP_RESULT)
-                res.set_loop_result(control.event_result.get_prev_result())
+                res.set_loop_result(control.event.prev_result)
         except control.exceptions.error.CircuitError as e:
             # Exceptions thrown by action reactor are included here.
             res.set_circuit_error(e)
@@ -812,6 +808,7 @@ def make_loop_engine_handle(circuit):
             res.set_internal_error(e)
             raise
         finally:
+            # Do not call res.cleanup() in here
             control.cleanup()
 
 
