@@ -844,7 +844,7 @@ def make_loop_engine_handle(circuit):
             state.maintain_state(state.LOAD, fn)
     
         _CIRCUIT_TEMPLATE = [
-            ("{}def {}(reactor, context, result, event_processor):", _circuit_def),
+            ("{}def {}(reactor, context, result, irq, event_processor):", _circuit_def),
              "    try:",
              "        while True:",
             ("{}", _build_actions),
@@ -869,21 +869,11 @@ def make_loop_engine_handle(circuit):
         ]
 
         _PAUSABLE_TEMPLATE = [
-            "if pauser.pause_requested:",
-            "    try:",
-            "        await pauser.consume_pause_result(event_processor)",
-            "if pauser.enter_if_pending_pause():",
-            ("{}", 'on_pause'),
-            "    try:",
-            "        pauser.pause()",
-            "    except Exception as e:",
-            "        raise CircuitError(e)",
-            "if pauser.enter_if_pending_resume():",
-            ("{}", 'on_resume'),
-            "try:",
-            "    await pauser.wait()",
-            "except Exception as e:",
-            "    raise CircuitError(e)",
+            "if irq.pause_requested:",
+            "    await irq.consume_pause_result(event_processor)",
+            "if irq.resume_event_scheduled:",
+            "    await irq.consume_resume_event(event_processor)"
+            "await irq.wait_resume()",
         ]
 
         _EVENT_IN_PAUSABLE_INDENT = 4
