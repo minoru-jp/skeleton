@@ -458,17 +458,15 @@ def _setup_loop_result() -> LoopResult:
 @runtime_checkable
 class ResultBridge(Protocol):
     @property
-    def UNSET(self) -> object:
-        ...
+    def UNSET(self) -> object: ...
     @staticmethod
-    def set_prev_result(tag: str, result: Any) -> None:
-        ...
+    def set_prev_result(tag: str, result: Any) -> None: ...
     @property
-    def prev_tag() -> str:
-        ...
+    def prev_tag() -> str: ...
     @property
-    def prev_result() -> Any:
-        ...
+    def prev_result() -> Any: ...
+    @staticmethod
+    def cleanup() -> None: ...
 
 def _setup_result_bridge() -> ResultBridge:
 
@@ -493,6 +491,11 @@ def _setup_result_bridge() -> ResultBridge:
         @staticmethod
         def get_prev_result(_):
             return _prev_result
+        @staticmethod
+        def cleanup() -> None:
+            nonlocal _prev_tag, _prev_result
+            _prev_tag = None
+            _prev_result = None
 
     return _ResultBridge()
 
@@ -757,6 +760,7 @@ def _setup_loop_control(
         def cleanup() -> None:
             nonlocal _event_reactor, _event_context,\
                 _action_reactor, _action_context,\
+                _event_result_bridge, _action_result_bridge,\
                 _all_event_handlers, _exc
             
             _event_result_bridge.cleanup()
