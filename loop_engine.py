@@ -513,10 +513,10 @@ class LoopInterrupt(Protocol):
     def resume_event_scheduled(self) -> bool: ...
 
     @staticmethod
-    async def consume_pause_request(handler: Handler, ctx: Context) -> Any: ...
+    async def consume_pause_request(event_processor) -> None: ...
     
     @staticmethod
-    async def consume_resume_event(handler: Handler, ctx: Context) -> Any: ...
+    async def consume_resume_event(event_processor) -> None: ...
     
     @staticmethod
     def request_pause() -> None: ...
@@ -528,7 +528,7 @@ class LoopInterrupt(Protocol):
     async def wait_resume() -> None: ...
 
 
-def _setup_loop_interrupt(state: State) -> LoopInterrupt:
+def _setup_loop_interrupt(ev: LoopEvent) -> LoopInterrupt:
     
     _RUNNING = object()
     _PAUSE = object()
@@ -544,22 +544,18 @@ def _setup_loop_interrupt(state: State) -> LoopInterrupt:
         def current_mode(_):
             return _mode
         @staticmethod
-        async def consume_pause_request(handler: Handler, ctx: Context):
+        async def consume_pause_request(event_processor):
             nonlocal _mode, _pause_requested
             _pause_requested = False
-            tmp = handler(ctx)
-            result = await tmp if inspect.isawaitable(tmp) else tmp
+            event_processor(ev.PAUSE)
             _event.clear()
             _mode = _PAUSE
-            return result
         @staticmethod
-        async def consume_resume_event(handler: Handler, ctx: Context):
+        async def consume_resume_event(event_processor):
             nonlocal _mode, _resume_event_scheduled
             _resume_event_scheduled = False
-            tmp = handler(ctx)
-            result = await tmp if inspect.isawaitable(tmp) else tmp
+            event_processor(ev.RESUME)
             _mode = _RUNNING
-            return result
         @staticmethod
         def request_pause():
             nonlocal _pause_requested
@@ -848,7 +844,7 @@ def make_loop_engine_handle(circuit):
             state.maintain_state(state.LOAD, fn)
     
         _CIRCUIT_TEMPLATE = [
-            ("{}def {}(control: LoopControl):", _circuit_def),
+            ("{}def {}(reactor, context, result, event_processor):", _circuit_def),
              "    try:",
              "        while True:",
             ("{}", _build_actions),
@@ -856,18 +852,14 @@ def make_loop_engine_handle(circuit):
              "            await irq.consume_pause_request()"
              "    except Break as e:",
              "        pass",
-             "    except HandlerError as e:",
-             "        raise"
-             "    except Exception as e:",
-             "        raise CircuitError(e)",
         ]
 
         _EVENT_IN_CIRCUIT_INDENT = 12
         
         _INVOKE_ACTION_TEMPLATE = [
             ("{}", 'notify'),
-            ("result = {}{}(ctx)", 'invoke_handler'),
-            ("result_bridge.set_prev({}, result)", 'result_bridge'),
+            ("r = {}{}(ctx)", 'invoke_handler'),
+            ("result_bridge.set_prev({}, r)", 'result_bridge'),
             "",
         ]
 
@@ -879,7 +871,7 @@ def make_loop_engine_handle(circuit):
         _PAUSABLE_TEMPLATE = [
             "if pauser.pause_requested:",
             "    try:",
-            "        await pauser.consume_pause_result(on_pause, ctx)",
+            "        await pauser.consume_pause_result(event_processor)",
             "if pauser.enter_if_pending_pause():",
             ("{}", 'on_pause'),
             "    try:",
