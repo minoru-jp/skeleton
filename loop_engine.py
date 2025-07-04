@@ -6,608 +6,792 @@ import logging
 import string
 from types import MappingProxyType
 
-def make_loop_engine_handle(role: str = 'loop', logger = None):
+from typing import Protocol, Callable, Mapping, Tuple, Any, runtime_checkable, FrozenSet, Type
+from types import MappingProxyType
+from typing_extensions import TypeAlias
 
-    if not logger:
-        logger = logging.getLogger(__name__)
 
-    def _load_loop_specification():
+@runtime_checkable
+class LoopEvent(Protocol):
+    @property
+    def START(self) -> str: ...
+    @property
+    def PAUSE(self) -> str: ...
+    @property
+    def RESUME(self) -> str: ...
+    @property
+    def STOP_NORMALLY(self) -> str: ...
+    @property
+    def STOP_CANCELED(self) -> str: ...
+    @property
+    def STOP_HANDLER_ERROR(self) -> str: ...
+    @property
+    def STOP_CIRCUIT_ERROR(self) -> str: ...
+    @property
+    def CLEANUP(self) -> str: ...
+    @property
+    def LOOP_RESULT(self) -> str: ...
 
-        START = 'on_start'
-        PAUSE = 'on_pause'
-        RESUME = 'on_resume'
-        STOP_NORMALLY = 'on_end'
-        STOP_CANCELED = 'on_stop'
-        STOP_HANDLER_ERROR = 'on_handler_exception'
-        STOP_CIRCUIT_ERROR = 'on_circuit_exception'
+    @staticmethod
+    def is_valid_event(name: str) -> bool: ...
+    @property
+    def all_events(self) -> FrozenSet[str]: ...
 
-        CLEANUP = 'on_closed'
-        LOOP_RESULT = 'on_result'
 
-        _PHASE_EVENTS = {
-            START, PAUSE, RESUME, STOP_NORMALLY,
-            STOP_CANCELED, STOP_HANDLER_ERROR, STOP_CIRCUIT_ERROR,
-            CLEANUP, LOOP_RESULT,
-        }
+def _setup_loop_event() -> LoopEvent:
+    START = 'on_start'
 
-        _INTERRUPT_EVENTS = {
-            PAUSE, RESUME
-        }
-
-        class LoopSpec:
-            @property
-            def interface(_):
-                return LoopSpec
-
-            @staticmethod
-            def is_valid_phase(name):
-                return name in _PHASE_EVENTS
-            @staticmethod
-            def is_valid_interrupt(name):
-                return name in _INTERRUPT_EVENTS
-            @property
-            def all_phase(_):
-                return frozenset(_PHASE_EVENTS)
-            @property
-            def all_interrupt(_):
-                return frozenset(_INTERRUPT_EVENTS)
-            @property
-            def all_events(_):
-                return frozenset(_PHASE_EVENTS | _INTERRUPT_EVENTS)
-            
-            @property
-            def START(_):
-                return START
-            @property
-            def PAUSE(_):
-                return PAUSE
-            @property
-            def RESUME(_):
-                return RESUME            
-            @property
-            def STOP_NORMALLY(_):
-                return STOP_NORMALLY
-            @property
-            def STOP_CANCELED(_):
-                return STOP_CANCELED
-            @property
-            def STOP_HANDLER_ERROR(_):
-                return STOP_HANDLER_ERROR
-            @property
-            def STOP_CIRCUIT_ERROR(_):
-                return STOP_CIRCUIT_ERROR
-            @property
-            def CLEANUP(_):
-                return CLEANUP
-            @property
-            def LOOP_RESULT(_):
-                return LOOP_RESULT
-            
-        return LoopSpec()
+    PAUSE = 'on_pause'
+    RESUME = 'on_resume'
     
-    def _load_state():
+    STOP_NORMALLY = 'on_end'
+    STOP_CANCELED = 'on_stop'
+    STOP_HANDLER_ERROR = 'on_handler_exception'
+    STOP_CIRCUIT_ERROR = 'on_circuit_exception'
 
-        _LOAD = 0
-        _ACTIVE = 1
-        _CLOSED = 2
-        _UNCLEAN = 20 # Terminal-state used instead of CLOSED if _on_closed() fails
-        _TERMINAL_STATES = (_CLOSED, _UNCLEAN)
+    CLEANUP = 'on_closed'
+    LOOP_RESULT = 'on_result'
 
-        _state = _LOAD
+    _PHASE_EVENTS = {
+        START, PAUSE, RESUME, STOP_NORMALLY,
+        STOP_CANCELED, STOP_HANDLER_ERROR, STOP_CIRCUIT_ERROR,
+        CLEANUP, LOOP_RESULT,
+    }
 
-        def _validate_state_value(state):
-            if state not in (_LOAD, _ACTIVE, *_TERMINAL_STATES):
-                raise State.UnknownStateError(
-                    f"Unknown or unsupported state value: {state}")
-            
-        def _require_state(expected):
-            _validate_state_value(expected)
-            if expected != _state:
-                err_log = f"State error: expected = {expected}, actual = {_state}"
-                if _state in _TERMINAL_STATES:
-                    raise State.InvalidStateError(err_log)
-                raise State.ClosedError(err_log)
+    class LoopEvent:
+        @property
+        def START(_):
+            return START
+        @property
+        def PAUSE(_):
+            return PAUSE
+        @property
+        def RESUME(_):
+            return RESUME            
+        @property
+        def STOP_NORMALLY(_):
+            return STOP_NORMALLY
+        @property
+        def STOP_CANCELED(_):
+            return STOP_CANCELED
+        @property
+        def STOP_HANDLER_ERROR(_):
+            return STOP_HANDLER_ERROR
+        @property
+        def STOP_CIRCUIT_ERROR(_):
+            return STOP_CIRCUIT_ERROR
+        @property
+        def CLEANUP(_):
+            return CLEANUP
+        @property
+        def LOOP_RESULT(_):
+            return LOOP_RESULT
         
-        class Interface:
-            class UnknownStateError(Exception):
-                pass
-            class InvalidStateError(Exception):
-                pass
-            class ClosedError(InvalidStateError):
-                pass
-
-            __slots__ = ()
-            @property
-            def LOAD(_):
-                return _LOAD
-            @property
-            def ACTIVE(_):
-                return _ACTIVE
-            @property
-            def CLOSED(_):
-                return _CLOSED
-            @property
-            def UNCLEAN(_):
-                return _UNCLEAN
-            @property
-            def TERMINAL_STATES(_):
-                return _TERMINAL_STATES
-            
-            @property
-            def current_state(_):
-                return _state
+        @staticmethod
+        def is_valid_event(name):
+            return name in _PHASE_EVENTS
+        @property
+        def all_events(_):
+            return frozenset(_PHASE_EVENTS)
         
-        _interface = Interface()
+    return LoopEvent()
 
-        class State(Interface):
-            __slots__ = ()
-            @property
-            def interface(_):
-                return _interface
-            
-            @staticmethod
-            def maintain_state(state, fn, *fn_args, **fn_kwargs):
-                _require_state(state)
-                return fn(*fn_args, **fn_kwargs)
-            
-            @staticmethod
-            def transit_state_with(to, fn, *fn_args, **fn_kwargs):
-                nonlocal _state
-                _validate_state_value(to)
-                to_active = _state == _LOAD and to == _ACTIVE
-                to_terminal = _state == _ACTIVE and to in _TERMINAL_STATES
-                if not (to_active or to_terminal):
-                    raise State.InvalidStateError(
-                        f"Invalid transition: {_state} → {to}")
-                if fn:
-                    result = State.maintain_state(
-                        _state, fn, *fn_args, **fn_kwargs)
-                    _state = to
-                    return result
-                else:
-                    return None
-                
-            @staticmethod
-            def transit_state(to):
-                return State.transit_state_with(to, None)
+
+@runtime_checkable
+class State(Protocol):
+    @property
+    def LOAD(self) -> object: ...
+    @property
+    def ACTIVE(self) -> object: ...
+    @property
+    def TERMINATED(self) -> object: ...
+
+    @property
+    def current_state(self) -> object: ...
+
+    @property
+    def errors(self) -> Any: ...
+
+    @staticmethod
+    def maintain_state(state: object, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any: ...
+
+    @staticmethod
+    def transit_state_with(to: object, fn: Callable[..., Any] | None, *args: Any, **kwargs: Any) -> Any: ...
+
+    @staticmethod
+    def transit_state(to: object) -> Any: ...
+
+def _setup_state() -> State:
+    # Use int values with strictly sequential numbering.
+    _LOAD = object()
+    _ACTIVE = object()
+    _TERMINATED = object()
+
+    _ALL = (_LOAD, _ACTIVE, _TERMINATED)
+
+    _state = _LOAD
+
+    def _validate_state_value(state):
+        if not any(state is s for s in _ALL):
+            raise Error.UnknownStateError(
+                f"Unknown or unsupported state value: {state}")
         
-        return State()
+    def _require_state(expected):
+        _validate_state_value(expected)
+        if expected is not _state:
+            err_log = f"State error: expected = {expected}, actual = {_state}"
+            if _state is _TERMINATED:
+                raise Error.TerminatedError(err_log)
+            raise Error.InvalidStateError(err_log)
     
+    class Error:
+        __slots__ = ()
+        class UnknownStateError(Exception):
+            pass
+        class InvalidStateError(Exception):
+            pass
+        class TerminatedError(InvalidStateError):
+            pass
 
-    def _load_loop_cofig(spec, state):
-        
-        def _DEFAULT_CONTEXT_UPDATER_FACTORY(loop_interface):
-            loop_context = loop_interface
-            def loop_context_updater(event, circuit_context):
-                return loop_interface
-            return loop_context_updater, loop_context
-        
-        # def _CIRCUIT_UPDATER_FACTORY_SMAPLE(loop_interface, loop_context):
-        #     circuit_context = some_goodness
-        #     def circuit_context_updater(event):
-        #         return circuit_context
-        #     return circuit_context_updater, circuit_context
-        
-        ACTION_SUFFIX = '_action'
-        MAX_ACTIONS = 26**3
+    class State:
+        __slots__ = ()
+        @property
+        def LOAD(_):
+            return _LOAD
+        @property
+        def ACTIVE(_):
+            return _ACTIVE
+        @property
+        def TERMINATED(_):
+            return _TERMINATED
 
-        _phase_handlers = {}
-        _interrupt_handlers = {} # tuple: (handler, notify_ctx)
+        @property
+        def current_state(_):
+            return _state
         
-        # Requires Python 3.7+ for guaranteed insertion order
-        _linear_actions_in_circuit = {} # tuple: (hadler, raw_name, notify_ctx)
+        @property
+        def errors(_):
+            return Error
         
-        _loop_ctx_updater_factory = _DEFAULT_CONTEXT_UPDATER_FACTORY
-        _circuit_ctx_updater_factory = None
-        _pausable = True
-
-        def _label_action_by_index():
-            index = len(_linear_actions_in_circuit)
-            if index >= MAX_ACTIONS:
-                raise ValueError(
-                    f"Too many actions: supports up to {MAX_ACTIONS}, got {index}")
+        @staticmethod
+        def maintain_state(state, fn, *fn_args, **fn_kwargs):
+            _require_state(state)
+            return fn(*fn_args, **fn_kwargs)
+        
+        @staticmethod
+        def transit_state_with(to, fn, *fn_args, **fn_kwargs):
+            nonlocal _state
+            _validate_state_value(to)
+            to_active = _state is _LOAD and to is _ACTIVE
+            to_terminal = _state is _ACTIVE and to is _TERMINATED
+            if not (to_active or to_terminal):
+                raise Error.InvalidStateError(
+                    f"Invalid transition: {_state} → {to}")
+            if fn:
+                result = State.maintain_state(
+                    _state, fn, *fn_args, **fn_kwargs)
+                _state = to
+                return result
+            else:
+                return None
             
-            result = ""
-            for _ in range(3):
-                result = string.ascii_lowercase[index % 26] + result
-                index //= 26
-                if index == 0:
-                    break
-            result = result + ACTION_SUFFIX
+        @staticmethod
+        def transit_state(to):
+            return State.transit_state_with(to, None)
+    
+    return State()
+
+@runtime_checkable
+class Context(Protocol):
+    """Represents a user-defined context object passed to handlers."""
+    ...
+
+Handler: TypeAlias = Callable[[Context], Any]
+
+@runtime_checkable
+class EventHandler(Protocol):
+    @staticmethod
+    def get_event_handlers() -> Mapping[str, Handler]:
+        ...
+    @staticmethod
+    def set_event_handler(event: str, handler: Handler) -> None:
+        ...
+
+def _setup_event_handler(spec: LoopEvent, state) -> EventHandler:
+    _phase_handlers = {}
+
+    class _EventHandler(EventHandler):
+        @staticmethod
+        def get_event_handlers():
+            return MappingProxyType(_phase_handlers)
+        @staticmethod
+        def set_event_handler(event, handler):
+            if not spec.is_valid_event(event):
+                raise ValueError(f"Event '{event}' is not defined")
+            def add_phase(): _phase_handlers[event] = handler
+            state.maintain_state(state.LOAD, add_phase)
+
+    return _EventHandler()
+
+
+@runtime_checkable
+class Action(Protocol):
+    @staticmethod
+    def get_actions() -> Mapping[str, Tuple[Handler, str, Any]]:
+        ...
+    @staticmethod
+    def append_action(name: str, fn: Handler, notify_ctx: Any) -> None:
+        ...
+    @staticmethod
+    def build_action_namespace() -> Mapping[str, Handler]:
+        ...
+
+def _setup_action(state: State) -> Action:
+
+    ACTION_SUFFIX = '_action'
+    MAX_ACTIONS = 26**3
+    
+    # Requires Python 3.7+ for guaranteed insertion order
+    _linear_actions_in_circuit = {} # tuple: (hadler, raw_name, notify_ctx)
+
+    def _label_action_by_index():
+        index = len(_linear_actions_in_circuit)
+        if index >= MAX_ACTIONS:
+            raise ValueError(
+                f"Too many actions: supports up to {MAX_ACTIONS}, got {index}")
+        
+        result = ""
+        for _ in range(3):
+            result = string.ascii_lowercase[index % 26] + result
+            index //= 26
+            if index == 0:
+                break
+        result = result + ACTION_SUFFIX
+        return result
+    
+    class _Action:
+        __slots__ = ()
+        @staticmethod
+        def get_actions():
+            return MappingProxyType(_linear_actions_in_circuit)
+        @staticmethod
+        def append_action(name, fn, notify_ctx):
+            def add_action():
+                label = _label_action_by_index()
+                _linear_actions_in_circuit[label] = (fn, str(name), notify_ctx)
+            state.maintain_state(state.LOAD, add_action)
+        @staticmethod
+        def build_action_namespace():
+            # l = lable, t = tuple(action func, raw_name, notify_ctx)
+            return {l :t[0] for l, t in _linear_actions_in_circuit.items()}
+    
+    return _Action()
+
+@runtime_checkable
+class Reactor(Protocol):
+    def __call__(self, event: str) -> None:
+        ...
+
+@runtime_checkable
+class ReactorFactory(Protocol):
+    def __call__(self, l_iface: Any) -> Tuple[Reactor, Context]:
+        ...
+
+@runtime_checkable
+class ReactorRegistry(Protocol):
+    @staticmethod
+    def set_event_reactor_factory(reactor_factory: ReactorFactory) -> None:
+        ...
+
+    @staticmethod
+    def set_action_reactor_factory(reactor_factory: ReactorFactory) -> None:
+        ...
+    
+    @staticmethod
+    def get_event_reactor_factory() -> ReactorFactory:
+        ...
+    
+    @staticmethod
+    def get_action_reactor_factory() -> ReactorFactory:
+        ...
+
+def _setup_reactor(state: State) -> ReactorRegistry:
+
+    def _LOOP_REACTOR_FACTORY(l_iface):
+        def loop_reactor(event):
+            pass
+        return loop_reactor, l_iface
+    
+    def _CIRCUIT_REACTOR_FACTORY(l_iface):
+        def circuit_reactor(event):
+            pass
+        return circuit_reactor, l_iface.loop_context
+
+    _loop_reactor_factory = _LOOP_REACTOR_FACTORY
+    _circuit_reactor_factory = _CIRCUIT_REACTOR_FACTORY
+
+    class _ReactorRegistry(ReactorRegistry):
+        __slots__ = ()
+        @staticmethod
+        def set_event_reactor_factory(reactor_factory):
+            def fn():
+                nonlocal _loop_reactor_factory
+                _loop_reactor_factory = reactor_factory
+            state.maintain_state(state.LOAD, fn)
+        
+        @staticmethod
+        def set_action_reactor_factory(reactor_factory):
+            def fn():
+                nonlocal _circuit_reactor_factory
+                _circuit_reactor_factory = reactor_factory
+            state.maintain_state(state.LOAD, fn)
+        
+        @staticmethod
+        def get_event_reactor_factory():
+            return _loop_reactor_factory
+        
+        @staticmethod
+        def get_action_reactor_factory():
+            return _circuit_reactor_factory
+
+    return _ReactorRegistry()
+
+
+@runtime_checkable
+class LoopResult(Protocol):
+    @property
+    def PENDING_RESULT(self) -> object: ...
+    @property
+    def NO_RESULT(self) -> object: ...
+    @staticmethod
+    def set_loop_result(obj: Any) -> None: ...
+    @staticmethod
+    def get_loop_result() -> Any: ...
+    @staticmethod
+    def set_exception(tag: str, e: Exception) -> None: ...
+    @staticmethod
+    def get_exception(tag: str) -> Exception | None: ...
+    @staticmethod
+    def cleanup() -> None: ...
+
+
+def _setup_loop_result() -> LoopResult:
+
+    _PENDING_RESULT = object()
+    _NO_RESULT = object()
+
+    # not target of cleanup
+    _loop_result = _PENDING_RESULT
+    
+    _exceptions = {} # tag: e
+
+    class _LoopResult:
+        __slots__ = ()
+        @property
+        def PENDING_RESULT(_):
+            return _PENDING_RESULT
+        @property
+        def NO_RESULT(_):
+            return _NO_RESULT
+        @staticmethod
+        def set_loop_result(obj):
+            nonlocal _loop_result
+            _loop_result = obj
+        @staticmethod
+        def get_loop_result():
+            return _loop_result
+        @staticmethod
+        def set_exception(tag, e):
+            _exceptions[tag] = e
+        @staticmethod
+        def get_exception(key):
+            return _exceptions.get(key, None)
+        @staticmethod
+        def cleanup():
+            nonlocal _loop_result, _exceptions
+            _loop_result = None
+            _exceptions.clear()
+            _exceptions = None
+    
+    return _LoopResult()
+
+@runtime_checkable
+class ResultBridge(Protocol):
+    @property
+    def UNSET(self) -> object:
+        ...
+    @staticmethod
+    def set_prev(tag: str, result: Any) -> None:
+        ...
+    @staticmethod
+    def get_prev_tag() -> str:
+        ...
+    @staticmethod
+    def get_prev_result() -> Any:
+        ...
+    @staticmethod
+    def forward(other: "ResultBridge") -> None:
+        ...
+
+def _setup_result_bridge() -> ResultBridge:
+
+    _UNSET = object
+
+    _prev_tag = '<unset>'
+    _prev_result = _UNSET
+
+    class _ResultBridge(ResultBridge):
+        __slots__ = ()
+        @property
+        def UNSET(_):
+            return _UNSET
+        @staticmethod
+        def set_prev(tag: str, result: Any):
+            nonlocal _prev_tag, _prev_result
+            _prev_tag = tag
+            _prev_result = result
+        @staticmethod
+        def get_prev_tag(_):
+            return _prev_tag
+        @staticmethod
+        def get_prev_result(_):
+            return _prev_result
+        @staticmethod
+        def forward(to: ResultBridge):
+            to.set_prev(_prev_tag, _prev_result)
+
+    return _ResultBridge()
+
+
+
+@runtime_checkable
+class LoopInterrupt(Protocol):
+    @property
+    def current_mode(self) -> object: ...
+
+    @property
+    def pause_requested(self) -> bool: ...
+    
+    @property
+    def resume_event_scheduled(self) -> bool: ...
+
+    @staticmethod
+    async def consume_pause_request(handler: Handler, ctx: Context) -> Any: ...
+    
+    @staticmethod
+    async def consume_resume_event(handler: Handler, ctx: Context) -> Any: ...
+    
+    @staticmethod
+    def request_pause() -> None: ...
+    
+    @staticmethod
+    def resume() -> None: ...
+    
+    @staticmethod
+    async def wait_resume() -> None: ...
+
+
+def _setup_loop_interrupt(state: State) -> LoopInterrupt:
+    
+    _RUNNING = object()
+    _PAUSE = object()
+
+    _mode: object = _RUNNING
+    _event: asyncio.Event = asyncio.Event()
+    _pause_requested: bool = False
+    _resume_event_scheduled: bool = False
+    
+    class _LoopInterrupt(LoopInterrupt):
+        __slots__ = ()
+        @property
+        def current_mode(_):
+            return _mode
+        @staticmethod
+        async def consume_pause_request(handler: Handler, ctx: Context):
+            nonlocal _mode, _pause_requested
+            _pause_requested = False
+            tmp = handler(ctx)
+            result = await tmp if inspect.isawaitable(tmp) else tmp
+            _event.clear()
+            _mode = _PAUSE
             return result
+        @staticmethod
+        async def consume_resume_event(handler: Handler, ctx: Context):
+            nonlocal _mode, _resume_event_scheduled
+            _resume_event_scheduled = False
+            tmp = handler(ctx)
+            result = await tmp if inspect.isawaitable(tmp) else tmp
+            _mode = _RUNNING
+            return result
+        @staticmethod
+        def request_pause():
+            nonlocal _pause_requested
+            _pause_requested = True
+        @staticmethod
+        def resume():
+            nonlocal _resume_event_scheduled
+            _resume_event_scheduled = True
+            _event.set()
+        @staticmethod
+        async def wait_resume():
+            await _event.wait()
+        @property
+        def pause_requested(_):
+            return _pause_requested
+        @property
+        def resume_event_scheduled(_):
+            return _resume_event_scheduled
+    
+    return _LoopInterrupt()
 
-        class Interface:
-            __slots__ = ()
-            @staticmethod
-            def get_phase_handlers():
-                return MappingProxyType(_phase_handlers)
-            @staticmethod
-            def get_interrupt_handlers():
-                return MappingProxyType(_interrupt_handlers)
-            @staticmethod
-            def get_actions():
-                return MappingProxyType(_linear_actions_in_circuit)
-            @staticmethod
-            def get_loop_context_updater_factory():
-                return _loop_ctx_updater_factory
-            @staticmethod
-            def get_circuit_context_updater_factory():
-                return _circuit_ctx_updater_factory
-            @property
-            def circuit_is_pausable(_):
-                return _pausable
+@runtime_checkable
+class LoopError(Protocol):
+    HandlerError: Type[Exception]
+    CircuitError: Type[Exception]
 
-        _interface = Interface()
 
-        class LoopConfig(Interface):
-            __slots__ = ()
-            @property
-            def interface(_):
-                return _interface
+@runtime_checkable
+class LoopSignal(Protocol):
+    Break: Type[Exception]
+
+
+@runtime_checkable
+class LoopException(Protocol):
+    @property
+    def error(self) -> LoopError: ...
+    
+    @property
+    def signal(self) -> LoopSignal: ...
+
+def _setup_loop_exception() -> LoopException:
+    class _LoopError:
+        __slots__ = ()
+        class HandlerError(Exception):
+            def __init__(self, tag, exception):
+                super().__init__()
+                self.event = tag
+                self.orig_exception = exception
+
+        class CircuitError(Exception):
+            def __init__(self, exception):
+                self.orig_exception = exception
+    
+    class _LoopSignal:
+        __slots__ = ()
+        class Break(Exception):
+            pass
+    
+    class _LoopException:
+        __slots__ = ()
+        @property
+        def error(_):
+            return _LoopError
+        @property
+        def signal(_):
+            return _LoopSignal
+    
+    return _LoopException()
+
+
+
+@runtime_checkable
+class TaskControl(Protocol):
+    @staticmethod
+    def start(
+        fn: Callable[..., Any], *fn_args: Any, **fn_kwargs: Any
+    ) -> Any: ...
+    
+    @property
+    def is_running(self) -> bool: ...
+    
+    @staticmethod
+    def stop() -> Any: ...
+
+def _setup_task_control(state: State) -> TaskControl:
+
+    _task = None
+
+    class _TaskControl:
+        __slots__ = ()
+        @staticmethod
+        def start(fn, *fn_args, **fn_kwargs):
+
+            def create_task():
+                nonlocal _task
+                result = fn(*fn_args, **fn_kwargs)
+                if inspect.isawaitable(result):
+                    _task = asyncio.create_task(result)
+                    return _task
+                return None
             
-            @staticmethod
-            def set_phase_handler(event, handler):
-                if not spec.is_valid_phase(event):
-                    raise ValueError(f"Event '{event}' is not defined")
-                def add_phase(): _phase_handlers[event] = handler
-                state.maintain_state(state.LOAD, add_phase)
-            
-            @staticmethod
-            def set_interrupt_handler(event, handler, notify_ctx):
-                if not spec.is_valid_interrupt(event):
-                    raise ValueError(f"Event '{event}' is not defined")
-                def add_interrupt(): _interrupt_handlers[event] = (handler, notify_ctx)
-                state.maintain_state(state.LOAD, add_interrupt)
-            
-            @staticmethod
-            def append_action(name, fn, notify_ctx):
-                def add_action():
-                    label = _label_action_by_index()
-                    _linear_actions_in_circuit[label] = (fn, str(name), notify_ctx)
-                state.maintain_state(state.LOAD, add_action)
-            
-            @staticmethod
-            def set_loop_context_updater_factory(ctx_updater_factory):
-                def fn():
-                    nonlocal _loop_ctx_updater_factory
-                    _loop_ctx_updater_factory = ctx_updater_factory
-                state.maintain_state(state.LOAD, fn)
-            
-            @staticmethod
-            def set_circuit_context_updater_factory(ctx_updater_factory):
-                def fn():
-                    nonlocal _circuit_ctx_updater_factory
-                    _circuit_ctx_updater_factory = ctx_updater_factory
-                state.maintain_state(state.LOAD, fn)
-            
-            @staticmethod
-            def set_pausable(flag):
-                def fn():
-                    nonlocal _pausable
-                    _pausable = flag
-                state.maintain_state(state.LOAD, fn)
-            
-            @staticmethod
-            def build_action_namespace():
-                # l = lable, t = tuple(action func, raw_name, notify_ctx)
-                return {l :t[0] for l, t in _linear_actions_in_circuit.items()}
-
-        return LoopConfig()
-
-
-    def _load_loop_environment(spec, state, injected_hook):
-
-        # Each handler's return value is always updated via _result_bridge.set_prev.
-        # Therefore, if a specific handler depends on the return value from another,
-        # all intermediate handlers must propagate the return value properly.
-        # In particular, be careful with on_pause and on_resume,
-        # as they may not be called in a strictly linear sequence.
-
-        RUNNING = 10 # Sub-state of ACTIVE commute to PAUSE
-        PAUSE = 11 # Sub-state of ACTIVE commute to RUNNING
-
-        PENDING_RESULT = object()
-        NO_RESULT = object()
+            return state.transit_state_with(state.ACTIVE, create_task)
         
-        _prev_event = None
-        _prev_result = None
-
-        _mode = RUNNING
-        _event = asyncio.Event()
-        _pending_pause = False
-        _pending_resume = False
-
-        _exc = None
-        _nested_exc = None
-
-        # not target of cleanup
-        _loop_result = PENDING_RESULT
-
-        def clean_environment():
-            nonlocal\
-                _prev_event, _prev_result, _event, _exc, _nested_exc,\
-                _mode, _pending_pause, _pending_resume
-            _prev_event = None
-            _prev_result = None
-            _event = None
-            _exc = None
-            _nested_exc = None
-            
-            _mode = RUNNING
-            _pending_pause = False
-            _pending_resume = False
+        @property
+        def is_running(_):
+            return _task is not None and not _task.done()
         
-        class LoopResultReader:
-            __slots__ = ()
-            @property
-            def PENDING_RESULT(_):
-                return PENDING_RESULT
-            @property
-            def NO_RESULT(_):
-                return NO_RESULT
-            @property
-            def exc(_):
-                return _exc
-            @property
-            def nested_exc(_):
-                return _nested_exc
-            @property
-            def loop_result(_):
-                return _loop_result
-            
-        _loop_result_reader = LoopResultReader()
+        @staticmethod
+        def stop():
+            def cancel_task():
+                if _TaskControl.is_running:
+                    _task.cancel()
+            state.maintain_state(state.ACTIVE, cancel_task)
+    
+    return _TaskControl()
 
-        
-        class HandlerResultReader:
-            __slots__ = ()
-            @property
-            def prev_event(_):
-                return _prev_event
-            @property
-            def prev_result(_):
-                return _prev_result
-            @property
-            def exc(_):
-                return _exc
-            @property
-            def nested_exc(_):
-                return _nested_exc
-        
-        _handler_result_reader = HandlerResultReader()
+@runtime_checkable
+class LoopControl(Protocol):
+    @property
+    def event_result(_) -> ResultBridge: ...
+    @property
+    def action_result(_) -> ResultBridge: ...
+    @staticmethod
+    async def process_event(event: str) -> None: ...
+    @staticmethod
+    def set_loop_result(result: Any) -> None: ...
+    @staticmethod
+    def setup_event_context() -> None: ...
+    @staticmethod
+    def setup_action_context() -> None: ...
 
+def _setup_loop_control(
+        role: str, evh: EventHandler, res: LoopResult,
+        context: ReactorRegistry) -> LoopControl:
+    # ループ開始時に呼び出す
+    _event_reactor, _event_context = None, None
+    _action_reactor, _action_context = None, None
+    _event_result_bridge = _setup_result_bridge()
+    _action_result_bridge = _setup_result_bridge()
+    
+    _all_event_handlers = dict(evh.get_event_handlers())
 
-        class ResultBridge:
-            __slots__ = ()
-            @property
-            def reader(_):
-                return _handler_result_reader
-            @staticmethod
-            def set_prev(event, result):
-                nonlocal _prev_event, _prev_result
-                _prev_event = event
-                _prev_result = result
-        
-        _result_bridge = ResultBridge()
+    _loop_result = _setup_loop_result()
 
+    _exc = _setup_loop_exception()
 
-        class Pauser:
-            __slots__ = ()
-            @staticmethod
-            def enter_if_pending_pause():
-                nonlocal _mode, _pending_pause
-                if _pending_pause:
-                    _pending_pause = False
-                    _mode = PAUSE
-                    return True
-                else:
-                    return False
-            @staticmethod
-            def enter_if_pending_resume():
-                nonlocal _mode, _pending_resume
-                if _pending_resume:
-                    _pending_resume = False
-                    _mode = RUNNING
-                    return True
-                else:
-                    return False
-            @staticmethod
-            def set():
-                _event.set()
-            @staticmethod
-            def clear():
-                _event.clear()
-            @staticmethod
-            async def wait():
-                await _event.wait()
-            @property
-            def pending_pause(_):
-                return _pending_pause
-            @property
-            def pending_resume(_):
-                return _pending_resume
-            @staticmethod
-            def pause():
-                nonlocal _pending_pause
-                _pending_pause = True
-            @staticmethod
-            def resume():
-                nonlocal _pending_resume
-                _pending_resume = True
-                _event.set()
-
-        _pauser = Pauser()
-
-
-        class ModeReader:
-            __slots__ = ()
-            @property
-            def RUNNING(_):
-                return RUNNING
-            @property
-            def PAUSE(_):
-                return PAUSE
-            @property
-            def current_mode(_):
-                return _mode
-            @property
-            def pending_pause(_):
-                return _pauser.pending_pause
-            @property
-            def pending_resume(_):
-                return _pauser.pending_resume
-        
-        _mode_reader = ModeReader()
-
-        class Interface:
-
-            class HandlerError(Exception):
-                def __init__(self, event, exception):
-                    super().__init__()
-                    self.event = event
-                    self.orig_exception = exception
-            
-            class CircuitError(Exception):
-                def __init__(self, exception):
-                    self.orig_exception = exception
-            
-            class Break(Exception):
-                pass
-
-            __slots__ = ()
-            @property
-            def RUNNING(_):
-                return _mode_reader.RUNNING
-            @property
-            def PAUSE(_):
-                return _mode_reader.PAUSE
-            @property
-            def mode(_):
-                return _mode_reader.current_mode
-            @property
-            def pause(_):
-                return _pauser.pause
-            @property
-            def resume(_):
-                return _pauser.resume
-            @property
-            def result(_):
-                return _loop_result_reader
-
-        _interface = Interface()
-
-
-        async def _process_loop_event(event, l_ctx_updater, l_ctx, c_ctx):
-            handler = injected_hook.get_phase_handler().get(event, None)
+    class _LoopControl(LoopControl):
+        __slots__ = ()
+        @property
+        def event_result(_):
+            return _event_result_bridge
+        @property
+        def action_result(_):
+            return _action_result_bridge
+        @staticmethod
+        def setup_event_context() -> None:
+            nonlocal _event_reactor, _event_context
+            _event_reactor, _event_context = context.get_event_reactor_factory()(_self)
+        @staticmethod
+        def setup_action_context() -> None:
+            nonlocal _action_reactor, _action_context
+            _action_reactor, _action_context = context.get_action_reactor_factory()(_self)
+        @staticmethod
+        async def process_event(event: str):
+            handler = _all_event_handlers.get(event, None)
             if not handler:
                 return
-            l_ctx_updater(event, c_ctx)
-            try:
-                tmp = handler(l_ctx)
-                result = await tmp if inspect.isawaitable(tmp) else tmp
-                _result_bridge.set_prev(event, result)
-            except Exception as e:
-                raise Interface.HandlerError(event, e)
-
-        async def _loop_engine(circuit):
-            nonlocal _loop_result, _exc, _nested_exc
-            iface = _interface
-            l_ctx_factory = injected_hook.get_loop_context_updater_factory()
-            c_ctx_factory = injected_hook.get_circuit_context_updater_factory()
-            l_ctx_updater, l_ctx = l_ctx_factory(iface)
-            try:
+            if inspect.iscoroutinefunction(_event_reactor):
                 try:
-                    await _process_loop_event(spec.START, l_ctx_updater, l_ctx, None)
-                    # Use loop-level context (l_ctx_updater, l_ctx) as a fallback
-                    # if circuit_context_updater_factory is not provided.
-                    if c_ctx_factory:
-                        c_ctx_updater, c_ctx = c_ctx_factory(iface, l_ctx)
-                    else:
-                        c_ctx_updater = l_ctx_updater
-                        c_ctx = l_ctx
-                    if inspect.iscoroutinefunction(circuit):
-                        await circuit(c_ctx_updater, c_ctx, _result_bridge, _pauser)
-                    else:
-                        circuit(c_ctx_updater, c_ctx, _result_bridge, _pauser)
-                    await _process_loop_event(spec.STOP_NORMALLY, l_ctx_updater, l_ctx, c_ctx)
+                    await _event_reactor(event)
                 except Exception as e:
-                    _exc = e
-                    raise
-                finally:
-                    l_ctx_updater('ctx_circuit_end', c_ctx)
+                    raise _exc.error.EventReactorError(e)
+            else:
+                try:
+                    _event_reactor(event)
+                except Exception as e:
+                    raise _exc.error.EventReactorError(e)
+            if inspect.iscoroutinefunction(handler):
+                try:
+                    result = await handler(_event_context)
+                except Exception as e:
+                    raise _exc.error.HandlerError(event, e)
+            else:
+                try:
+                    result = handler(_event_context)
+                except Exception as e:
+                    raise _exc.error.HandlerError(event, e)
+            _event_result_bridge.set_prev(event, result)
+    
+    _self = _LoopControl()
 
+    return _self
+
+# def make_loop_engine_handle(role: str = 'loop', logger = None):
+def make_loop_engine_handle(circuit):
+
+    # if not logger:
+    #     logger = logging.getLogger(__name__)
+    
+    async def _loop_engine(
+            role: str, logger: logging.Logger,
+            circuit, ev: LoopEvent, control: LoopControl,
+            exc: LoopException) -> None:
+        try:
+            control.setup_event_context()
+            try:
+                await control.process_event(ev.START)
+                control.setup_action_context()
+                if inspect.iscoroutinefunction(circuit):
+                    try:
+                        await circuit(control)
+                    except Exception as e:
+                        raise exc.error.CircuitError(e)
+                else:
+                    try:
+                        circuit(control)
+                    except Exception as e:
+                        raise exc.error.CircuitError(e)
+                await control.process_event(ev.STOP_NORMALLY)
             except asyncio.CancelledError as e:
                 logger.info(f"[{role}] Loop was cancelled")
-                try:
-                    await _process_loop_event(spec.STOP_CANCELED, l_ctx_updater, l_ctx, c_ctx)
-                except Exception as nested_exc:
-                    _nested_exc = nested_exc
-                    raise nested_exc from e
-            except Interface.HandlerError as e:
-                logger.exception(f"[{role}] {e.event} Handler failed")
-                try:
-                    await _process_loop_event(spec.STOP_HANDLER_ERROR, l_ctx_updater, l_ctx, c_ctx)
-                except Exception as nested_exc:
-                    _nested_exc = nested_exc
-            except Exception as e:
-                logger.exception(f"[{role}] Unknown exception in circuit")
-                try:
-                    await _process_loop_event(spec.STOP_CIRCUIT_ERROR, l_ctx_updater, l_ctx, c_ctx)
-                except Exception as nested_exc:
-                    _nested_exc = nested_exc
+                await control.process_event(ev.STOP_CANCELED)
             finally:
-                # Currently, exceptions raised from on_closed or on_result are not handled.
-                # Consider whether to introduce explicit handlers or allow propagation.
-                # Additional note: Exceptions thrown by these two are not captured in _exc.
-                try:
-                    await _process_loop_event(spec.CLEANUP, l_ctx_updater, l_ctx)
-                    state.transit_state(state.CLOSED)
-                except Exception:
-                    logger.exception(f"[{role}] on_closed handler failed")
-                    state.transit_state(state.UNCLEAN)
-                try:
-                    await _process_loop_event(spec.LOOP_RESULT, l_ctx_updater, l_ctx)
-                    _loop_result = _result_bridge.prev_result
-                    return
-                except Exception:
-                    logger.exception(f"[{role}] on_result handler failed")
-                    _loop_result = NO_RESULT
-                    return
-                finally:
-                    # Cleanup local references
-                    iface = None
-                    l_ctx_updater = None
-                    l_ctx = None
-                    c_ctx_updater = None
-                    c_ctx = None
-                    # Cleanup closure states
-                    clean_environment()
-
-        class LoopEnvironment(Interface):
-            __slots__ = ()
-            @property
-            def interface(_):
-                return _interface
-            @property
-            def loop_engine(_):
-                return _loop_engine
-        
-        return LoopEnvironment()
+                await control.process_event(ev.CLEANUP)
+                await control.process_event(ev.LOOP_RESULT)
+                control.set_loop_result(control.event_result.get_prev_result())
+        except exc.error.CircuitError as e:
+            # Exceptions thrown by action reactor are included here.
+            control.set_circuit_error(e)
+            raise
+        except exc.error.EventReactorError as e:
+            control.set_event_reactor_error(e)
+            raise
+        except exc.error.HandlerError as e:
+            control.set_handler_error(e)
+            raise
+        except Exception as e:
+            logger.critical(f"[{role}] Internal error: {e.__class__.__name__}")
+            control.set_internal_error(e)
+            raise
+        finally:
+            control.cleanup()
 
 
     def _load_circuit_factory(spec, loop_env, injected_hook):
+        @property
+        def circuit_is_pausable(_):
+            return _pausable
+        
+        @staticmethod
+        def set_pausable(flag):
+            def fn():
+                nonlocal _pausable
+                _pausable = flag
+            state.maintain_state(state.LOAD, fn)
     
         _CIRCUIT_TEMPLATE = [
-            ("{}def {}(ctx_updater, ctx, result_bridge, pauser):", 'define'),
-            "    try:",
-            "        while True:",
-            ("{}", 'actions'),
-            ("{}", 'pausable'),
-            "    except Break as e:",
-            "        pass",
-            "    except CircuitError as e:",
-            "        raise e.orig_exception",
-            "    except Exception as e:",
-            "        raise HandlerError(current, e)",
+            ("{}def {}(control: LoopControl):", _circuit_def),
+             "    try:",
+             "        while True:",
+            ("{}", _build_actions),
+             "        if irq.pause_requested:"
+             "            await irq.consume_pause_request()"
+             "    except Break as e:",
+             "        pass",
+             "    except HandlerError as e:",
+             "        raise"
+             "    except Exception as e:",
+             "        raise CircuitError(e)",
         ]
 
         _EVENT_IN_CIRCUIT_INDENT = 12
@@ -625,10 +809,13 @@ def make_loop_engine_handle(role: str = 'loop', logger = None):
         ]
 
         _PAUSABLE_TEMPLATE = [
+            "if pauser.pause_requested:",
+            "    try:",
+            "        await pauser.consume_pause_result(on_pause, ctx)",
             "if pauser.enter_if_pending_pause():",
             ("{}", 'on_pause'),
             "    try:",
-            "        pauser.clear()",
+            "        pauser.pause()",
             "    except Exception as e:",
             "        raise CircuitError(e)",
             "if pauser.enter_if_pending_resume():",
@@ -785,59 +972,20 @@ def make_loop_engine_handle(role: str = 'loop', logger = None):
                 return _generated_circuit
 
         return CircuitFactory()
+    
 
-    def _load_task_control(state):
-
-        _task = None
-
-        class Interface:
-            __slots__ = ()
-            @property
-            def is_running(_):
-                return _task is not None and not _task.done()
-            
-            @staticmethod
-            def stop():
-                def cancel_task():
-                    if TaskControl.is_running:
-                        _task.cancel()
-                return state.maintain_state(state.ACTIVE, cancel_task)
-        
-        _interface = Interface()
-
-        class TaskControl(Interface):
-            __slots__ = ()
-            @property
-            def interface(_):
-                return _interface
-            @staticmethod
-            def start(fn, *fn_args, **fn_kwargs):
-
-                def create_task():
-                    nonlocal _task
-                    async def wrapper():
-                        result = fn(*fn_args, **fn_kwargs)
-                        if inspect.isawaitable(result):
-                            return await result
-                        return result
-                    _task = asyncio.create_task(wrapper())
-                    return _task
-                
-                return state.transit_state_with(state.ACTIVE, create_task)
-        
-        return TaskControl()
 
 
     STATIC_CIRCUIT_NAME = '_static_circuit'
 
-    _spec = _load_loop_specification()
-    _state = _load_state()
+    _spec = _setup_loop_event()
+    _state = _setup_state()
     _injected_hook = _load_loop_cofig(_spec, _state)
-    _loop_environment = _load_loop_environment(_spec, _state, _injected_hook)
+    _loop_environment = _setup_loop_exception(_spec, _state, _injected_hook)
 
     _circuit_factory = _load_circuit_factory(_spec, _loop_environment, _injected_hook)
     
-    _task_control = _load_task_control(_state)
+    _task_control = _setup_task_control(_state)
 
     # _meta = SimpleNamespace()
 
@@ -972,7 +1120,7 @@ def make_loop_engine_handle(role: str = 'loop', logger = None):
 
     return Handle()
 
-if __name__ == "__main__":
+async def main():
     from types import SimpleNamespace
     handle = make_loop_engine_handle("test")
 
@@ -982,14 +1130,16 @@ if __name__ == "__main__":
     handle.set_on_pause(lambda ctx: print("[on_pause]"), notify_ctx = False)
     handle.set_on_resume(lambda ctx: print("[on_resume]"), notify_ctx = True)
 
-    def cotext_updater_factory(loop_interface):
+    def context_updater_factory(loop_interface):
         ctx = SimpleNamespace()
         ctx.count = 0
         ctx.loop_interface = loop_interface
-        def context_updater(event):
+        def context_updater(event, c_ctx):
             ctx.count += 1
             return ctx
         return context_updater, ctx
+    
+    handle.set_loop_context_builder_factory(context_updater_factory)
 
     async def action(ctx):
         print('tick' + '!' * ctx.count)
@@ -999,4 +1149,8 @@ if __name__ == "__main__":
 
     handle.append_action('tick_and_stop', action, notify_ctx = True)
 
-    handle.start()
+    task = handle.start()
+
+    await task
+
+asyncio.run(main())
