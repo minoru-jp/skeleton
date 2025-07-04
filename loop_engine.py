@@ -842,46 +842,38 @@ def make_loop_engine_handle(circuit):
                 nonlocal _pausable
                 _pausable = flag
             state.maintain_state(state.LOAD, fn)
+
+        def _circuit_def():
+            pass
     
         _CIRCUIT_TEMPLATE = [
-            ("{}def {}(reactor, context, result, irq, event_processor):", _circuit_def),
+            ("{async_}def {name}(reactor, context, result, irq, event_processor):", _circuit_def),
              "    try:",
              "        while True:",
-            ("{}", _build_actions),
-             "        if irq.pause_requested:"
-             "            await irq.consume_pause_request()"
-             "    except Break as e:",
-             "        pass",
+            (None, _build_actions),
+            (None, _irq_process),
+             "        except Break as e:",
+             "            pass",
         ]
 
         _EVENT_IN_CIRCUIT_INDENT = 12
         
         _INVOKE_ACTION_TEMPLATE = [
-            ("{}", 'notify'),
-            ("r = {}{}(ctx)", 'invoke_handler'),
-            ("result_bridge.set_prev({}, r)", 'result_bridge'),
+            ("reactor({raw_name})", _notify_reactor),
+            ("r = {await_}{action_label}(ctx)", _invoke_action),
+            ("result.set_prev_result({raw_name}, r)", _result_bridge),
             "",
         ]
 
-        _INVOKE_PAUSER_HANDLER_TEMPLATE = [
-            ("{}", 'notify'),
-            ("{}{}(ctx)", 'invoke_handler'),
-        ]
+        _IRQ_PROCESS_CODE = "\n".join([
+            "            if irq.pause_requested:",
+            "                await irq.consume_pause_result(event_processor)",
+            "            if irq.resume_event_scheduled:",
+            "                await irq.consume_resume_event(event_processor)"
+            "            await irq.wait_resume()",
+        ])
 
-        _PAUSABLE_TEMPLATE = [
-            "if irq.pause_requested:",
-            "    await irq.consume_pause_result(event_processor)",
-            "if irq.resume_event_scheduled:",
-            "    await irq.consume_resume_event(event_processor)"
-            "await irq.wait_resume()",
-        ]
 
-        _EVENT_IN_PAUSABLE_INDENT = 4
-
-        _PAUSER_HANDLER_IN_CIRCUIT = [
-            spec.PAUSE,
-            spec.RESUME
-        ]
 
         _circuit_full_code = None
         _generated_circuit = None
