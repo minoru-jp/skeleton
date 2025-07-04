@@ -690,11 +690,11 @@ class LoopControl(Protocol):
     @staticmethod
     async def process_event(event: str) -> None: ...
     @staticmethod
-    def set_loop_result(result: Any) -> None: ...
-    @staticmethod
     def setup_event_context() -> None: ...
     @staticmethod
     def setup_action_context() -> None: ...
+    @staticmethod
+    def cleanup() -> None: ...
 
 def _setup_loop_control(
         role: str, evh: EventHandler, res: LoopResult,
@@ -706,8 +706,6 @@ def _setup_loop_control(
     _action_result_bridge = _setup_result_bridge()
     
     _all_event_handlers = dict(evh.get_event_handlers())
-
-    _loop_result = _setup_loop_result()
 
     _exc = _setup_loop_exception()
 
@@ -755,6 +753,21 @@ def _setup_loop_control(
                 except Exception as e:
                     raise _exc.error.HandlerError(event, e)
             _event_result_bridge.set_prev_result(event, result)
+        @staticmethod
+        def cleanup() -> None:
+            nonlocal _event_reactor, _event_context,\
+                _action_reactor, _action_context,\
+                _all_event_handlers, _exc
+            
+            _event_result_bridge.cleanup()
+            _action_result_bridge.cleanup()
+            _all_event_handlers.clear()
+            _event_reactor, _event_context = None, None
+            _action_reactor, _action_context = None, None
+            _all_event_handlers = None
+            _exc = None
+            _event_result_bridge = None
+            _action_result_bridge = None
     
     _self = _LoopControl()
 
@@ -810,6 +823,12 @@ def make_loop_engine_handle(circuit):
         finally:
             # Do not call res.cleanup() in here
             control.cleanup()
+            role = None
+            logger = None
+            circuit = None
+            ev = None
+            control = None
+            res = None
 
 
     def _load_circuit_factory(spec, loop_env, injected_hook):
