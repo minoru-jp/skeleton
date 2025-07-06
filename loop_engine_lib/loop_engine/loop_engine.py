@@ -99,20 +99,14 @@ import asyncio
 import inspect
 import logging
 
-import string
-from types import MappingProxyType
-
-from typing import Awaitable, Optional, Protocol, Callable, Mapping, Tuple, Any, runtime_checkable, FrozenSet, Type
-from types import MappingProxyType
-from typing_extensions import TypeAlias
+from typing import Awaitable, Optional, Protocol, Callable, Mapping, Tuple, Any, runtime_checkable,Type
 
 from internal import *
 
 @runtime_checkable
 class StateError(Protocol):
-    """
-    Protocol for state-related error definitions.
-    """
+    """Protocol for state-related error definitions."""
+
     UnknownStateError: Type[Exception]
     """Raised for unknown or unsupported state."""
 
@@ -133,24 +127,29 @@ class StateObserver(Protocol):
     """
 
     @property
-    def LOAD(_) -> object: ...
-    """State token: initial load state."""
+    def LOAD(_) -> object:
+        """State token: initial load state."""
+        ...
 
     @property
-    def ACTIVE(_) -> object: ...
-    """State token: active state."""
+    def ACTIVE(_) -> object:
+        """State token: active state."""
+        ...
 
     @property
-    def TERMINATED(_) -> object: ...
-    """State token: terminated state."""
+    def TERMINATED(_) -> object:
+        """State token: terminated state."""
+        ...
 
     @property
-    def state(_) -> object: ...
-    """Current internal state."""
+    def state(_) -> object:
+        """Current internal state."""
+        ...
 
     @property
-    def errors(_) -> 'StateError': ...
-    """Error definitions for invalid state operations."""
+    def errors(_) -> 'StateError':
+        """Error definitions for invalid state operations."""
+        ...
 
 
 
@@ -192,6 +191,7 @@ class EventHandler(Protocol):
     """
     def __call__(_, ctx: Context) -> Any:
         """Execute with the given context."""
+        ...
 
 
 @runtime_checkable
@@ -205,6 +205,7 @@ class Action(Protocol):
         Executes the action within the circuit loop
         using the given context.
         """
+        ...
 
 @runtime_checkable
 class Reactor(Protocol):
@@ -212,10 +213,11 @@ class Reactor(Protocol):
     Reacts to lifecycle points (including both events and actions) and may update the Context.
     """
 
-    def __call__(_, next_proc: str) -> None:
+    def __call__(_, next_proc: str) -> Optional[Awaitable[None]]:
         """
         Handle a lifecycle point, identified by the tag, and optionally update the Context.
         """
+        ...
 
 
 @runtime_checkable
@@ -233,6 +235,7 @@ class ReactorFactory(Protocol):
         """
         Produce a Reactor and its associated Context for the given control.
         """
+        ...
 
 
 @runtime_checkable
@@ -251,34 +254,42 @@ class LoopResultReader(Protocol):
     @property
     def PENDING_RESULT(self) -> object:
         """Marker: result is still pending."""
+        ...
 
     @property
     def NO_RESULT(self) -> object:
         """Marker: loop produced no result."""
+        ...
     
     @property
     def last_process(_) -> str:
         """Return the recoded last process name."""
+        ...
 
     @property
     def loop_result(_) -> Any:
         """Return the recorded final result."""
+        ...
 
     @property
     def circuit_error(_) -> Exception:
         """Return the recorded circuit error if any."""
+        ...
 
     @property
     def event_reactor_error(_) -> Exception:
         """Return the recorded event reactor error if any."""
+        ...
 
     @property
     def handler_error(_) -> Exception:
         """Return the recorded handler error if any."""
+        ...
 
     @property
     def internal_error(_) -> Exception:
         """Return the recorded internal error if any."""
+        ...
 
 
 def _setup_loop_result_reader(state: State, loop_result: LoopResult) -> LoopResultReader:
@@ -329,14 +340,17 @@ class LoopInterruptObserver(Protocol):
     @property
     def RUNNING(_) -> object:
         """Marker object indicating the loop is in RUNNING mode."""
+        ...
 
     @property
     def PAUSE(_) -> object:
         """Marker object indicating the loop is in PAUSE mode."""
+        ...
 
     @property
     def mode(_) -> object:
         """Current mode of the loop: either RUNNING or PAUSE."""
+        ...
 
 
 def _setup_loop_interrupt_observer(loop_interrupt: LoopInterrupt) -> LoopInterruptObserver:
@@ -404,16 +418,18 @@ class LoopException(Protocol):
     """
 
     @property
-    def errors(_) -> LoopError:
+    def errors(_) -> Type[LoopError]:
         """
         Returns the error definitions used in the loop.
         """
+        ...
     
     @property
-    def signals(_) -> LoopSignal:
+    def signals(_) -> Type[LoopSignal]:
         """
         Returns the control signal definitions used in the loop.
         """
+        ...
 
 def _setup_loop_exception() -> LoopException:
     class _LoopError(LoopError):
@@ -442,10 +458,10 @@ def _setup_loop_exception() -> LoopException:
     class _Interface(LoopException):
         __slots__ = ()
         @property
-        def errors(_) -> LoopError:
+        def errors(_) -> Type[LoopError]:
             return _LoopError
         @property
-        def signals(_) -> LoopSignal:
+        def signals(_) -> Type[LoopSignal]:
             return _LoopSignal
     
     return _Interface()
@@ -466,6 +482,7 @@ class LoopLog(Protocol):
         Sets the role name for the loop.
         Can only be set once during the LOAD state.
         """
+        ...
     
     @staticmethod
     def set_logger(logger: logging.Logger) -> None:
@@ -473,6 +490,7 @@ class LoopLog(Protocol):
         Sets or replaces the logger instance.
         Can be called multiple times to change the logger.
         """
+        ...
     
     @property
     def role(self) -> str:
@@ -480,12 +498,14 @@ class LoopLog(Protocol):
         Returns the current role name.
         If no role was explicitly set, defaults to 'loop'.
         """
+        ...
     
     @property
     def logger(self) -> logging.Logger:
         """
         Returns the current logger instance.
         """
+        ...
 
 def _setup_loop_log(state: State) -> LoopLog:
 
@@ -529,88 +549,109 @@ class LoopEngineHandle(Protocol):
     """
 
     @property
-    def log(self) -> LoopLog: ...
-    """Access to loop logger and role information."""
+    def log(self) -> LoopLog:
+        """Access to loop logger and role information."""
+        ...
 
     @staticmethod
-    def set_on_start(fn: EventHandler) -> None: ...
-    """Register handler for loop start event."""
+    def set_on_start(fn: EventHandler) -> None:
+        """Register handler for loop start event."""
+        ...
 
     @staticmethod
-    def set_on_end(fn: EventHandler) -> None: ...
-    """Register handler for loop end event."""
+    def set_on_end(fn: EventHandler) -> None:
+        """Register handler for loop end event."""
+        ...
 
     @staticmethod
-    def set_on_stop(fn: EventHandler) -> None: ...
-    """Register handler for loop stop (canceled) event."""
+    def set_on_stop(fn: EventHandler) -> None:
+        """Register handler for loop stop (canceled) event."""
+        ...
 
     @staticmethod
-    def set_on_closed(fn: EventHandler) -> None: ...
-    """Register handler for loop cleanup event."""
+    def set_on_closed(fn: EventHandler) -> None:
+        """Register handler for loop cleanup event."""
+        ...
 
     @staticmethod
-    def set_on_result(fn: EventHandler) -> None: ...
-    """Register handler for loop result event."""
+    def set_on_result(fn: EventHandler) -> None:
+        """Register handler for loop result event."""
+        ...
 
     @staticmethod
-    def set_on_pause(fn: EventHandler) -> None: ...
-    """Register handler for loop pause event."""
+    def set_on_pause(fn: EventHandler) -> None:
+        """Register handler for loop pause event."""
+        ...
 
     @staticmethod
-    def set_on_resume(fn: EventHandler) -> None: ...
-    """Register handler for loop resume event."""
+    def set_on_resume(fn: EventHandler) -> None:
+        """Register handler for loop resume event."""
+        ...
 
     @staticmethod
-    def generate_circuit_code(name: str, irq: bool) -> str: ...
-    """Generate source code for the circuit function."""
+    def generate_circuit_code(name: str, irq: bool) -> str:
+        """Generate source code for the circuit function."""
+        ...
 
     @staticmethod
-    def start() -> None: ...
-    """Start loop engine with pre-defined circuit."""
+    def start() -> None:
+        """Start loop engine with pre-defined circuit."""
+        ...
 
     @staticmethod
-    def start_with_compile(irq: bool) -> None: ...
-    """Compile and start loop engine with generated circuit."""
+    def start_with_compile(irq: bool) -> None:
+        """Compile and start loop engine with generated circuit."""
+        ...
 
     @property
-    def stop(self) -> Callable[[], None]: ...
-    """Stop the loop task if running."""
+    def stop(self) -> Callable[[], None]:
+        """Stop the loop task if running."""
+        ...
 
     @property
-    def task_is_running(self) -> bool: ...
-    """True if the loop task is currently running."""
+    def task_is_running(self) -> bool:
+        """True if the loop task is currently running."""
+        ...
 
     @property
-    def pause(self) -> Callable[[], None]: ...
-    """Request loop pause at next safe point."""
+    def pause(self) -> Callable[[], None]:
+        """Request loop pause at next safe point."""
+        ...
 
     @property
-    def resume(self) -> Callable[[], None]: ...
-    """Request immediate loop resume."""
+    def resume(self) -> Callable[[], None]:
+        """Request immediate loop resume."""
+        ...
 
     @property
-    def append_action(self) -> Callable[..., None]: ...
-    """Register an action to the circuit."""
+    def append_action(self) -> Callable[..., None]:
+        """Register an action to the circuit."""
+        ...
 
     @property
-    def set_event_reactor_factory(self) -> Callable[..., None]: ...
-    """Set factory for event reactor and context."""
+    def set_event_reactor_factory(self) -> Callable[..., None]:
+        """Set factory for event reactor and context."""
+        ...
 
     @property
-    def set_action_reactor_factory(self) -> Callable[..., None]: ...
-    """Set factory for action reactor and context."""
+    def set_action_reactor_factory(self) -> Callable[..., None]:
+        """Set factory for action reactor and context."""
+        ...
 
     @property
-    def state_observer(self) -> StateObserver: ...
-    """Read-only view of the current state (LOAD/ACTIVE/TERMINATED)."""
+    def state_observer(self) -> StateObserver:
+        """Read-only view of the current state (LOAD/ACTIVE/TERMINATED)."""
+        ...
 
     @property
-    def running_observer(self) -> LoopInterruptObserver: ...
-    """Read-only view of the current run/pause mode."""
+    def running_observer(self) -> LoopInterruptObserver:
+        """Read-only view of the current run/pause mode."""
+        ...
 
     @property
-    def loop_result(self) -> LoopResultReader: ...
-    """Read-only view of the final result and errors."""
+    def loop_result(self) -> LoopResultReader:
+        """Read-only view of the final result and errors."""
+        ...
 
     
 def make_loop_engine_handle(static_circuit = None) -> LoopEngineHandle:
@@ -675,9 +716,9 @@ def make_loop_engine_handle(static_circuit = None) -> LoopEngineHandle:
             # Do not call res.cleanup() in here
             control.cleanup()
             circuit = None
-            ev = None
-            control = None
-            res = None
+            ev = None # type: ignore
+            control = None # type: ignore
+            res = None # type: ignore
     
     def _start_loop_engine(circuit_func):
         return _task_control.start(

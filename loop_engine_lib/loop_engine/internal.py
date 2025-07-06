@@ -10,7 +10,8 @@ from typing import Any, Awaitable, Callable, Coroutine, FrozenSet, Mapping, Opti
 from loop_engine import EventHandler
 
 if TYPE_CHECKING:
-    from loop_engine import *
+    #from loop_engine import *
+    pass
 
 
 @runtime_checkable
@@ -155,7 +156,7 @@ class State(Protocol):
         ...
 
     @property
-    def errors(self) -> 'StateError':
+    def errors(self) -> StateError:
         """Error definitions for invalid state operations."""
         ...
 
@@ -239,7 +240,7 @@ def setup_state() -> State:
             to_active = _state is _LOAD and to is _ACTIVE
             to_terminal = _state is _ACTIVE and to is _TERMINATED
             if not (to_active or to_terminal):
-                raise StateError.InvalidStateError(
+                raise _errors.InvalidStateError(
                     f"Invalid transition: {_state} → {to}")
             if fn:
                 result = iface.maintain_state(
@@ -328,14 +329,14 @@ class _ActionRegistry(Protocol):
     """
 
     @staticmethod
-    def get_actions() -> Mapping[str, Tuple['Action', str, bool]]:
+    def get_actions() -> Mapping[str, Tuple[Action, str, bool]]:
         """
         Return all registered actions as an immutable mapping.
         """
         ...
 
     @staticmethod
-    def append_action(name: str, fn: 'Action', notify_reactor: bool) -> None:
+    def append_action(name: str, fn: Action, notify_reactor: bool) -> None:
         """
         Register an action with the given name, implementation, and notify_reactor flag.
         If notify_reactor is True, the reactor will be notified when the action is executed.
@@ -343,7 +344,7 @@ class _ActionRegistry(Protocol):
         ...
 
     @staticmethod
-    def build_action_namespace() -> Mapping[str, 'Action']:
+    def build_action_namespace() -> Mapping[str, Action]:
         """
         Build a namespace mapping of (callable name → action) pairs,
         used to invoke actions by their assigned names.
@@ -385,7 +386,7 @@ def setup_action_registry(state: State) -> _ActionRegistry:
     class _Interface(_ActionRegistry):
         __slots__ = ()
         @staticmethod
-        def get_actions() -> Mapping[str, Tuple['Action', str, bool]]:
+        def get_actions() -> Mapping[str, Tuple[Action, str, bool]]:
             return MappingProxyType(_linear_actions_in_circuit)
         @staticmethod
         def append_action(name, fn, notify_reactor) -> None:
@@ -394,7 +395,7 @@ def setup_action_registry(state: State) -> _ActionRegistry:
                 _linear_actions_in_circuit[label] = (fn, str(name), notify_reactor)
             state.maintain_state(state.LOAD, add_action)
         @staticmethod
-        def build_action_namespace() -> Mapping[str, 'Action']:
+        def build_action_namespace() -> Mapping[str, Action]:
             # l = lable, t = tuple(action func, raw_name, notify_ctx)
             return {l :t[0] for l, t in _linear_actions_in_circuit.items()}
         @staticmethod
@@ -422,28 +423,28 @@ class ReactorRegistry(Protocol):
     """
 
     @staticmethod
-    def set_event_reactor_factory(reactor_factory: 'ReactorFactory') -> None:
+    def set_event_reactor_factory(reactor_factory: ReactorFactory) -> None:
         """
         Set the ReactorFactory used to produce Reactor+Context for events.
         """
         ...
 
     @staticmethod
-    def set_action_reactor_factory(reactor_factory: 'ReactorFactory') -> None:
+    def set_action_reactor_factory(reactor_factory: ReactorFactory) -> None:
         """
         Set the ReactorFactory used to produce Reactor+Context for actions.
         """
         ...
     
     @property
-    def event_reactor_factory(_) -> 'ReactorFactory':
+    def event_reactor_factory(_) -> ReactorFactory:
         """
         Get the current ReactorFactory for events.
         """
         ...
     
     @property
-    def action_reactor_factory(_) -> 'ReactorFactory':
+    def action_reactor_factory(_) -> ReactorFactory:
         """
         Get the current ReactorFactory for actions.
         """
@@ -1091,7 +1092,7 @@ class LoopControl(Protocol):
     """
 
     @property
-    def exceptions(_) -> 'LoopException':
+    def exceptions(_) -> LoopException:
         """
         Returns the LoopException definitions associated with this loop control.
         Contains both error and signal definitions used during loop execution.
@@ -1148,7 +1149,7 @@ class LoopControl(Protocol):
 def setup_loop_control(
         evh: EventHandleRegistry, context: ReactorRegistry,
         ev_step: StepSlot, act_step: StepSlot,
-        exc: 'LoopException') -> LoopControl:
+        exc: LoopException) -> LoopControl:
     
     _event_reactor, _event_context = None, None
     _action_reactor, _action_context = None, None
