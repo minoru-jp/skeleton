@@ -101,7 +101,15 @@ import logging
 
 from typing import Awaitable, Optional, Protocol, Callable, Mapping, Tuple, Any, runtime_checkable,Type
 
-from internal import *
+
+from internal import (
+    State,
+    LoopControl,
+    LoopResult,
+    LoopInterrupt,
+    LoopEvent
+)
+import internal as _setup
 
 @runtime_checkable
 class StateError(Protocol):
@@ -172,7 +180,7 @@ def _setup_state_observer(state: State) -> StateObserver:
             return state.current_state
         
         @property
-        def errors(_) -> StateError:
+        def errors(_) -> Type[StateError]:
             return state.errors
     
     return _Interface()
@@ -189,7 +197,7 @@ class EventHandler(Protocol):
     """
     Implementation to be executed for an event.
     """
-    def __call__(_, ctx: Context) -> Any:
+    def __call__(self, ctx: Context) -> Any:
         """Execute with the given context."""
         ...
 
@@ -200,7 +208,7 @@ class Action(Protocol):
     Executable within the circuit, takes a Context.
     Can be sync or async.
     """
-    def __call__(_, ctx: Context) -> Any:
+    def __call__(self, ctx: Context) -> Any:
         """
         Executes the action within the circuit loop
         using the given context.
@@ -213,7 +221,7 @@ class Reactor(Protocol):
     Reacts to lifecycle points (including both events and actions) and may update the Context.
     """
 
-    def __call__(_, next_proc: str) -> Optional[Awaitable[None]]:
+    def __call__(self, next_proc: str) -> Optional[Awaitable[None]]:
         """
         Handle a lifecycle point, identified by the tag, and optionally update the Context.
         """
@@ -231,7 +239,7 @@ class ReactorFactory(Protocol):
     Typically implemented as a closure that captures necessary state.
     """
 
-    def __call__(_, control: 'LoopControl') -> Tuple[Reactor, Context]:
+    def __call__(self, control: LoopControl) -> Tuple[Reactor, Context]:
         """
         Produce a Reactor and its associated Context for the given control.
         """
@@ -730,29 +738,29 @@ def make_loop_engine_handle(static_circuit = None) -> LoopEngineHandle:
             _loop_control,
             _loop_res)
 
-    _event = setup_loop_event()
+    _event = _setup.setup_loop_event()
 
-    _state = setup_state()
+    _state = _setup.setup_state()
     _state_observer = _setup_state_observer(_state)
     
-    _evh_registry = setup_event_handler_registry(_event, _state)
-    _act_registry = setup_action_registry(_state)
-    _react_registry = setup_reactor_registry(_state)
+    _evh_registry = _setup.setup_event_handler_registry(_event, _state)
+    _act_registry = _setup.setup_action_registry(_state)
+    _react_registry = _setup.setup_reactor_registry(_state)
     
-    _ev_step = setup_step_slot()
-    _act_step = setup_step_slot()
+    _ev_step = _setup.setup_step_slot()
+    _act_step = _setup.setup_step_slot()
     
-    _irq = setup_loop_interrupt(_event)
+    _irq = _setup.setup_loop_interrupt(_event)
     _running_observer = _setup_loop_interrupt_observer(_irq)
 
     _exc = _setup_loop_exception()
-    _task_control = setup_task_control(_state)
+    _task_control = _setup.setup_task_control(_state)
     
-    _circ_code_factory = setup_circuit_code_factory()
+    _circ_code_factory = _setup.setup_circuit_code_factory()
     
     _log = _setup_loop_log(_state)
 
-    _loop_control = setup_loop_control(
+    _loop_control = _setup.setup_loop_control(
         evh = _evh_registry,
         context = _react_registry,
         ev_step = _ev_step,
@@ -760,7 +768,7 @@ def make_loop_engine_handle(static_circuit = None) -> LoopEngineHandle:
         exc = _exc
     )
 
-    _loop_res = setup_loop_result()
+    _loop_res = _setup.setup_loop_result()
     _loop_res_reader = _setup_loop_result_reader(_state, _loop_res)
 
 
@@ -793,10 +801,10 @@ def make_loop_engine_handle(static_circuit = None) -> LoopEngineHandle:
             _evh_registry.set_event_handler('on_resume', fn)
         
         @staticmethod
-        def generate_circuit_code(name: str, irq: bool):
+        def generate_circuit_code(name: str, irq: bool, ):
             return _circ_code_factory.generate_circuit_code(
                 name,
-                _act_registry.build_action_namespace(),
+                _act_registry.get_actions(),
                 irq
             )
         
@@ -811,10 +819,10 @@ def make_loop_engine_handle(static_circuit = None) -> LoopEngineHandle:
             return _start_loop_engine(
                 _compile(
                     circuit_name,
-                    _Interface.generate_circuit_code(
+                    iface.generate_circuit_code(
                         circuit_name, irq
                     ),
-                    _act_registry.build_action_namespace()
+                    _act_registry.get_action_namespace()
                 )
             )
         @property
@@ -853,5 +861,6 @@ def make_loop_engine_handle(static_circuit = None) -> LoopEngineHandle:
         def loop_result(_) -> LoopResultReader:
             return _loop_res_reader
 
-    return _Interface()
+    iface = _Interface()
+    return iface
 
