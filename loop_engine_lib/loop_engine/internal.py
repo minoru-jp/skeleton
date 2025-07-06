@@ -5,7 +5,7 @@ import asyncio
 import inspect
 import string
 from types import MappingProxyType
-from typing import Any, Awaitable, Callable, FrozenSet, Mapping, Optional, Protocol, Tuple, runtime_checkable, TYPE_CHECKING
+from typing import Any, Awaitable, Callable, Coroutine, FrozenSet, Mapping, Optional, Protocol, Tuple, runtime_checkable, TYPE_CHECKING
 
 from loop_engine import EventHandler
 
@@ -22,37 +22,48 @@ class LoopEvent(Protocol):
     @property
     def START(_) -> str: 
         """Event name for loop start."""
+        ...
     @property
     def PAUSE(_) -> str: 
         """Event name for loop pause."""
+        ...
     @property
     def RESUME(_) -> str: 
         """Event name for loop resume."""
+        ...
     @property
     def STOP_NORMALLY(_) -> str: 
         """Event name for normal loop stop."""
+        ...
     @property
     def STOP_CANCELED(_) -> str: 
         """Event name for canceled loop stop."""
+        ...
     @property
     def STOP_HANDLER_ERROR(_) -> str: 
         """Event name when a event handler raises an error."""
+        ...
     @property
     def STOP_CIRCUIT_ERROR(_) -> str: 
         """Event name when a circuit raises an error."""
+        ...
     @property
     def CLEANUP(_) -> str: 
         """Event name for loop cleanup."""
+        ...
     @property
     def LOOP_RESULT(_) -> str: 
         """Event name for final loop result."""
+        ...
 
     @staticmethod
     def is_valid_event(name: str) -> bool: 
         """Return True if the given name is a defined event."""
+        ...
     @property
     def all_events(_) -> FrozenSet[str]: 
         """Return all defined event names as a frozen set."""
+        ...
 
 
 def setup_loop_event() -> LoopEvent:
@@ -123,36 +134,45 @@ class State(Protocol):
     """
 
     @property
-    def LOAD(self) -> object: ...
-    """State token: initial load state."""
+    def LOAD(self) -> object:
+        """State token: initial load state."""
+        ...
+
 
     @property
-    def ACTIVE(self) -> object: ...
-    """State token: active state."""
+    def ACTIVE(self) -> object:
+        """State token: active state."""
+        ...
 
     @property
-    def TERMINATED(self) -> object: ...
-    """State token: terminated state."""
+    def TERMINATED(self) -> object:
+        """State token: terminated state."""
+        ...
 
     @property
-    def current_state(self) -> object: ...
-    """Current internal state."""
+    def current_state(self) -> object:
+        """Current internal state."""
+        ...
 
     @property
-    def errors(self) -> 'StateError': ...
-    """Error definitions for invalid state operations."""
+    def errors(self) -> 'StateError':
+        """Error definitions for invalid state operations."""
+        ...
 
     @staticmethod
-    def maintain_state(state: object, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any: ...
-    """Run `fn` if current state matches `state`, else raise."""
+    def maintain_state(state: object, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+        """Run `fn` if current state matches `state`, else raise."""
+        ...
 
     @staticmethod
-    def transit_state_with(to: object, fn: Callable[..., Any] | None, *args: Any, **kwargs: Any) -> Any: ...
-    """Transition to `to` state and optionally run `fn`."""
+    def transit_state_with(to: object, fn: Callable[..., Any] | None, *args: Any, **kwargs: Any) -> Any:
+        """Transition to `to` state and optionally run `fn`."""
+        ...
 
     @staticmethod
-    def transit_state(to: object) -> Any: ...
-    """Transition to `to` state without running a function."""
+    def transit_state(to: object) -> Any:
+        """Transition to `to` state without running a function."""
+        ...
 
 def setup_state() -> State:
     _LOAD = object()
@@ -165,7 +185,7 @@ def setup_state() -> State:
 
     def _validate_state_value(state):
         if not any(state is s for s in _ALL):
-            raise _StateError.UnknownStateError(
+            raise _errors.UnknownStateError(
                 f"Unknown or unsupported state value: {state}")
         
     def _require_state(expected):
@@ -173,10 +193,10 @@ def setup_state() -> State:
         if expected is not _state:
             err_log = f"State error: expected = {expected}, actual = {_state}"
             if _state is _TERMINATED:
-                raise _StateError.TerminatedError(err_log)
-            raise _StateError.InvalidStateError(err_log)
+                raise _errors.TerminatedError(err_log)
+            raise _errors.InvalidStateError(err_log)
     
-    class _StateError(_StateError):
+    class _StateError(StateError):
         __slots__ = ()
         class UnknownStateError(Exception):
             pass
@@ -184,6 +204,8 @@ def setup_state() -> State:
             pass
         class TerminatedError(InvalidStateError):
             pass
+    
+    _errors = _StateError()
 
     class _Interface(State):
         __slots__ = ()
@@ -202,8 +224,8 @@ def setup_state() -> State:
             return _state
         
         @property
-        def errors(_) -> _StateError:
-            return _StateError
+        def errors(_) -> StateError:
+            return _errors
         
         @staticmethod
         def maintain_state(state, fn, *fn_args, **fn_kwargs):
@@ -217,10 +239,10 @@ def setup_state() -> State:
             to_active = _state is _LOAD and to is _ACTIVE
             to_terminal = _state is _ACTIVE and to is _TERMINATED
             if not (to_active or to_terminal):
-                raise _StateError.InvalidStateError(
+                raise StateError.InvalidStateError(
                     f"Invalid transition: {_state} → {to}")
             if fn:
-                result = State.maintain_state(
+                result = iface.maintain_state(
                     _state, fn, *fn_args, **fn_kwargs)
                 _state = to
                 return result
@@ -229,9 +251,11 @@ def setup_state() -> State:
             
         @staticmethod
         def transit_state(to):
-            return State.transit_state_with(to, None)
+            return iface.transit_state_with(to, None)
     
-    return _Interface()
+    iface = _Interface()
+
+    return iface
 
 
 
@@ -249,6 +273,7 @@ class EventHandleRegistry(Protocol):
         """
         Return all registered event handlers as an immutable mapping.
         """
+        ...
     
     @staticmethod
     def set_event_handler(event: str, handler: EventHandler) -> None:
@@ -257,6 +282,7 @@ class EventHandleRegistry(Protocol):
         Validates that the event is supported and registers the handler
         only when the current state is LOAD. Raises ValueError if the event is invalid.
         """
+        ...
     
     @staticmethod
     def cleanup() -> None:
@@ -264,9 +290,10 @@ class EventHandleRegistry(Protocol):
         Clears all registered event handlers and releases internal state.
         After calling this, the instance should not be used.
         """
+        ...
 
 def setup_event_handler_registry(ev: LoopEvent, state: State) -> EventHandleRegistry:
-    _event_handlers = {}
+    _event_handlers:dict  = {}
 
     class _EventHandlerRegistry(EventHandleRegistry):
         @staticmethod
@@ -283,7 +310,7 @@ def setup_event_handler_registry(ev: LoopEvent, state: State) -> EventHandleRegi
             nonlocal _event_handlers
             _event_handlers.clear()
             # break internal state after clearing
-            _event_handlers = None
+            _event_handlers = None # type: ignore
 
     return _EventHandlerRegistry()
 
@@ -305,6 +332,7 @@ class _ActionRegistry(Protocol):
         """
         Return all registered actions as an immutable mapping.
         """
+        ...
 
     @staticmethod
     def append_action(name: str, fn: 'Action', notify_reactor: bool) -> None:
@@ -312,6 +340,7 @@ class _ActionRegistry(Protocol):
         Register an action with the given name, implementation, and notify_reactor flag.
         If notify_reactor is True, the reactor will be notified when the action is executed.
         """
+        ...
 
     @staticmethod
     def build_action_namespace() -> Mapping[str, 'Action']:
@@ -319,6 +348,7 @@ class _ActionRegistry(Protocol):
         Build a namespace mapping of (callable name → action) pairs,
         used to invoke actions by their assigned names.
         """
+        ...
     
     @staticmethod
     def cleanup() -> None:
@@ -326,6 +356,7 @@ class _ActionRegistry(Protocol):
         Clears all registered actions and releases internal state.
         After calling this, the instance should not be used further.
         """
+        ...
 
 def setup_action_registry(state: State) -> _ActionRegistry:
 
@@ -333,7 +364,7 @@ def setup_action_registry(state: State) -> _ActionRegistry:
     MAX_ACTIONS = 26**3  # all 3-letter lowercase aliases
     
     # Requires Python 3.7+ for guaranteed insertion order
-    _linear_actions_in_circuit = {} # tuple: (hadler, raw_name, notify_ctx)
+    _linear_actions_in_circuit:dict = {} # tuple: (hadler, raw_name, notify_ctx)
 
     #generates a unique 3-letter alias for each action
     def _label_action_by_index():
@@ -371,7 +402,7 @@ def setup_action_registry(state: State) -> _ActionRegistry:
             nonlocal _linear_actions_in_circuit
             _linear_actions_in_circuit.clear()
             # break internal state after clearing
-            _linear_actions_in_circuit = None 
+            _linear_actions_in_circuit = None # type: ignore
     
     return _Interface()
 
@@ -379,7 +410,7 @@ def setup_action_registry(state: State) -> _ActionRegistry:
 
 
 @runtime_checkable
-class _ReactorRegistry(Protocol):
+class ReactorRegistry(Protocol):
     """
     Manages ReactorFactory instances for events and actions.
 
@@ -395,24 +426,28 @@ class _ReactorRegistry(Protocol):
         """
         Set the ReactorFactory used to produce Reactor+Context for events.
         """
+        ...
 
     @staticmethod
     def set_action_reactor_factory(reactor_factory: 'ReactorFactory') -> None:
         """
         Set the ReactorFactory used to produce Reactor+Context for actions.
         """
+        ...
     
     @property
     def event_reactor_factory(_) -> 'ReactorFactory':
         """
         Get the current ReactorFactory for events.
         """
+        ...
     
     @property
     def action_reactor_factory(_) -> 'ReactorFactory':
         """
         Get the current ReactorFactory for actions.
         """
+        ...
     
     @staticmethod
     def cleanup() -> None:
@@ -420,8 +455,9 @@ class _ReactorRegistry(Protocol):
         Clears all internal ReactorFactory references and releases state.
         After calling this, the instance should not be used further.
         """
+        ...
 
-def setup_reactor_registry(state: State) -> _ReactorRegistry:
+def setup_reactor_registry(state: State) -> ReactorRegistry:
 
     def _EVENT_REACTOR_FACTORY(control):
         """
@@ -441,10 +477,10 @@ def setup_reactor_registry(state: State) -> _ReactorRegistry:
             pass
         return circuit_reactor, control.event_context
 
-    _event_reactor_factory = _EVENT_REACTOR_FACTORY
-    _action_reactor_factory = _ACTION_REACTOR_FACTORY
+    _event_reactor_factory: ReactorFactory = _EVENT_REACTOR_FACTORY
+    _action_reactor_factory: ReactorFactory = _ACTION_REACTOR_FACTORY
 
-    class _Interface(_ReactorRegistry):
+    class _Interface(ReactorRegistry):
         __slots__ = ()
         @staticmethod
         def set_event_reactor_factory(reactor_factory):
@@ -471,8 +507,8 @@ def setup_reactor_registry(state: State) -> _ReactorRegistry:
         @staticmethod
         def cleanup():
             nonlocal _event_reactor_factory, _action_reactor_factory
-            _event_reactor_factory = None
-            _action_reactor_factory = None
+            _event_reactor_factory = None # type: ignore
+            _action_reactor_factory = None # type: ignore
 
     return _Interface()
 
@@ -491,62 +527,77 @@ class LoopResult(Protocol):
     @property
     def PENDING_RESULT(self) -> object:
         """Marker: result is still pending."""
+        ...
 
     @property
     def NO_RESULT(self) -> object:
         """Marker: loop produced no result."""
+        ...
 
     @staticmethod
     def set_loop_result(obj: Any) -> None:
         """Record the final result of the loop."""
+        ...
 
     @staticmethod
     def set_last_process(proc_name: str) -> None:
         """Record the last process name of the loop."""
+        ...
 
     @property
     def loop_result(_) -> Any:
         """Return the recorded final result."""
+        ...
     
     @property
     def last_process(_) -> str:
         """Return the recoded last process name."""
+        ...
 
     @staticmethod
     def set_circuit_error(e: Exception) -> None:
         """Record an error raised by the circuit."""
+        ...
 
     @staticmethod
     def set_event_reactor_error(e: Exception) -> None:
         """Record an error raised by the event reactor."""
+        ...
 
     @staticmethod
     def set_handler_error(e: Exception) -> None:
         """Record an error raised by a handler."""
+        ...
 
     @staticmethod
     def set_internal_error(e: Exception) -> None:
         """Record an internal framework error."""
+        ...
 
     @property
     def circuit_error(_) -> Exception:
         """Return the recorded circuit error if any."""
+        ...
 
     @property
     def event_reactor_error(_) -> Exception:
         """Return the recorded event reactor error if any."""
+        ...
 
     @property
     def handler_error(_) -> Exception:
         """Return the recorded handler error if any."""
+        ...
 
     @property
     def internal_error(_) -> Exception:
         """Return the recorded internal error if any."""
+        ...
 
     @staticmethod
     def cleanup() -> None:
         """Clear all recorded results and errors."""
+        ...
 
 def setup_loop_result() -> LoopResult:
 
@@ -556,14 +607,14 @@ def setup_loop_result() -> LoopResult:
     # not target of cleanup
     _loop_result = _PENDING_RESULT
     
-    _last_proc_name:str = None
+    _last_proc_name:Optional[str] = None
 
     _circuit_error = None
     _event_reactor_error = None
     _handler_error = None
     _internal_error = None
 
-    class _LoopResult(_LoopResult):
+    class _LoopResult(LoopResult):
         __slots__ = ()
         @property
         def PENDING_RESULT(_):
@@ -641,30 +692,35 @@ class StepSlot(Protocol):
     @property
     def UNSET(self) -> object:
         """Marker object indicating an unset result."""
+        ...
 
     @staticmethod
     def set_prev_result(proc_name: str, result: Any) -> None:
         """
         Record the result and process name of the most recent step.
         """
+        ...
 
     @property
     def prev_proc(_) -> str:
         """
         Return the process name of the most recent recorded step.
         """
+        ...
 
     @property
     def prev_result(_) -> Any:
         """
         Return the result of the most recent recorded step.
         """
+        ...
 
     @staticmethod
     def cleanup() -> None:
         """
         Clear the recorded process name and result.
         """
+        ...
 
 def setup_step_slot() -> StepSlot:
 
@@ -718,18 +774,22 @@ class LoopInterrupt(Protocol):
     @property
     def RUNNING(_) -> object:
         """Marker object indicating the loop is in RUNNING mode."""
+        ...
 
     @property
     def PAUSE(_) -> object:
         """Marker object indicating the loop is in PAUSE mode."""
+        ...
 
     @property
     def current_mode(self) -> object:
         """Current mode of the loop: either RUNNING or PAUSE."""
+        ...
 
     @property
     def pause_requested(self) -> bool:
         """True if a pause has been requested but not yet consumed."""
+        ...
 
     @property
     def resume_event_scheduled(self) -> bool:
@@ -737,6 +797,7 @@ class LoopInterrupt(Protocol):
         True if the loop has already resumed (`resume()` called and unblocked)
         but the RESUME event is still pending and will be fired by `perform_resume_event()`.
         """
+        ...
 
     @staticmethod
     async def consume_pause_request(event_processor: Callable[[str], Awaitable[None]]) -> None:
@@ -744,6 +805,7 @@ class LoopInterrupt(Protocol):
         Consume the pending pause request: clears the pause flag, switches to PAUSE mode,
         fires the PAUSE event via `event_processor`, and resets the resume wait state.
         """
+        ...
 
     @staticmethod
     async def perform_resume_event(event_processor: Callable[[str], Awaitable[None]]) -> None:
@@ -751,6 +813,7 @@ class LoopInterrupt(Protocol):
         Perform the scheduled RESUME event: clears the resume flag, switches to RUNNING mode,
         and fires the RESUME event via `event_processor`.
         """
+        ...
 
     @staticmethod
     def request_pause() -> None:
@@ -758,6 +821,7 @@ class LoopInterrupt(Protocol):
         Request that the loop pauses at its next safe point.
         Sets the pause flag but does not block the loop immediately.
         """
+        ...
 
     @staticmethod
     def resume() -> None:
@@ -765,6 +829,7 @@ class LoopInterrupt(Protocol):
         Immediately signal that the loop should resume.
         Sets the resume flag and unblocks `wait_resume()`.
         """
+        ...
 
     @staticmethod
     async def wait_resume() -> None:
@@ -772,6 +837,7 @@ class LoopInterrupt(Protocol):
         Await until a resume signal is issued via `resume()`.
         Typically awaited while the loop is paused.
         """
+        ...
 
 def setup_loop_interrupt(ev: LoopEvent) -> LoopInterrupt:
     
@@ -847,18 +913,21 @@ class TaskControl(Protocol):
         If it is awaitable, it is passed to asyncio.create_task(),  
         which normally returns a task or may raise an exception.
         """
+        ...
     
     @property
     def is_running(_) -> bool:
         """
         Returns True if the task is currently running and not done.
         """
+        ...
     
     @staticmethod
     def stop() -> None:
         """
         Stops the task by cancelling it if it is running.
         """
+        ...
 
 def setup_task_control(state: State) -> TaskControl:
 
@@ -875,7 +944,7 @@ def setup_task_control(state: State) -> TaskControl:
             def create_task():
                 nonlocal _task
                 result = fn(*fn_args, **fn_kwargs)
-                if inspect.isawaitable(result):
+                if isinstance(result, Coroutine):
                     # create_task validates result
                     _task = asyncio.create_task(result)
                     return _task
@@ -890,7 +959,7 @@ def setup_task_control(state: State) -> TaskControl:
         @staticmethod
         def stop():
             def cancel_task():
-                if _is_running():
+                if _task and _is_running():
                     _task.cancel()
             state.maintain_state(state.ACTIVE, cancel_task)
     
@@ -925,6 +994,7 @@ class CircuitCodeFactory(Protocol):
         Returns:
             The generated source code as a string.
         """
+        ...
 
 def setup_circuit_code_factory() -> CircuitCodeFactory:
 
@@ -1026,18 +1096,21 @@ class LoopControl(Protocol):
         Returns the LoopException definitions associated with this loop control.
         Contains both error and signal definitions used during loop execution.
         """
+        ...
 
     @property
     def event(_) -> StepSlot:
         """
         Returns the StepSlot that holds the most recent event name and its result.
         """
+        ...
 
     @property
     def action(_) -> StepSlot:
         """
         Returns the StepSlot that holds the most recent action name and its result.
         """
+        ...
 
     @staticmethod
     async def process_event(event: str) -> None:
@@ -1046,6 +1119,7 @@ class LoopControl(Protocol):
         The reactor is executed first, then the event handler, and
         their results or exceptions are recorded accordingly.
         """
+        ...
 
     @staticmethod
     def setup_event_context() -> None:
@@ -1053,6 +1127,7 @@ class LoopControl(Protocol):
         Initializes the event reactor and its context.
         Must be called before processing events.
         """
+        ...
 
     @staticmethod
     def setup_action_context() -> None:
@@ -1060,6 +1135,7 @@ class LoopControl(Protocol):
         Initializes the action reactor and its context.
         Must be called before processing actions.
         """
+        ...
 
     @staticmethod
     def cleanup() -> None:
@@ -1067,9 +1143,10 @@ class LoopControl(Protocol):
         Cleans up internal state, releasing all references and clearing slots.
         After cleanup, the instance should not be used further.
         """
+        ...
 
 def setup_loop_control(
-        evh: EventHandleRegistry, context: _ReactorRegistry,
+        evh: EventHandleRegistry, context: ReactorRegistry,
         ev_step: StepSlot, act_step: StepSlot,
         exc: 'LoopException') -> LoopControl:
     
@@ -1093,14 +1170,16 @@ def setup_loop_control(
         def setup_event_context() -> None:
             nonlocal _event_reactor, _event_context
             _event_reactor, _event_context =\
-                context.event_reactor_factory()(_iface)
+                context.event_reactor_factory(_iface)
         @staticmethod
         def setup_action_context() -> None:
             nonlocal _action_reactor, _action_context
             _action_reactor, _action_context =\
-                  context.action_reactor_factory()(_iface)
+                  context.action_reactor_factory(_iface)
         @staticmethod
         async def process_event(event: str) -> None:
+            assert _event_reactor is not None
+            assert _all_event_handlers is not None
             handler = _all_event_handlers.get(event, None)
             if not handler:
                 return
@@ -1144,11 +1223,11 @@ def setup_loop_control(
             _event_reactor, _event_context = None, None
             _action_reactor, _action_context = None, None
             _all_event_handlers = None
-            exc = None
-            ev_step = None
-            act_step = None
-            _iface = None
+            exc = None # type: ignore
+            ev_step = None # type: ignore
+            act_step = None # type: ignore
+            _iface = None # type: ignore
     
-    _iface = _Interface()
+    _iface:LoopControl = _Interface()
 
     return _iface

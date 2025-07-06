@@ -285,7 +285,7 @@ def _setup_state() -> _State:
                 raise _StateError.TerminatedError(err_log)
             raise _StateError.InvalidStateError(err_log)
     
-    class _StateError(_StateError):
+    class _StateError(StateError):
         __slots__ = ()
         class UnknownStateError(Exception):
             pass
@@ -293,6 +293,8 @@ def _setup_state() -> _State:
             pass
         class TerminatedError(InvalidStateError):
             pass
+    
+    _errors = _StateError()
 
     class _Interface(_State):
         __slots__ = ()
@@ -311,8 +313,8 @@ def _setup_state() -> _State:
             return _state
         
         @property
-        def errors(_) -> _StateError:
-            return _StateError
+        def errors(_) -> StateError:
+            return _errors
         
         @staticmethod
         def maintain_state(state, fn, *fn_args, **fn_kwargs):
