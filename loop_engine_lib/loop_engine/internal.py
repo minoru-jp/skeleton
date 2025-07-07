@@ -3,7 +3,7 @@
 interal.py
 -----------------
 
-Internal implementation for the loop_ending.py module.
+Internal implementation for the loop_engine.py module.
 
 Regular classes are not used.
 State is enclosed in closures and exposed via the Protocol interface
