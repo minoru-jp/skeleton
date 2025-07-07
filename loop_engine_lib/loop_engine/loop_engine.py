@@ -1,97 +1,17 @@
+
 """
-This code defines isolated, self-contained implementations via `_setup_*()` functions,  
-each conforming to a Protocol interface.  
+loop_engine.py
+-----------------
 
-- Each implementation has its own internal state and constants, with no global or shared definitions.  
-- Reusability is ensured only through Protocols; implementations remain independent.  
-- Lifecycle is explicitly controlled by the caller.  
+High-level assembly of the loop engine components.
 
-The design emphasizes locality, predictability, and safety over reuse or readability.
+This module builds and wires together the Protocol implementations
+from internal.py into a ready-to-use LoopEngineHandle.
 
-Implementation Closure Design Pattern
+Usage and detailed documentation are provided in loop_engine_manual.py.
 
-Core Principles:
-1. Each _setup_*() function returns an instance implementing a Protocol
-2. Dependencies are explicitly passed as arguments
-3. Internal implementation is encapsulated within closures
-
-## Design Notes
-
-This module deliberately avoids traditional Python classes and instances
-for internal components. Instead, it uses closures to encapsulate all 
-state and constants within each `_setup_*()` function.
-
-### Rationale:
-- Classes expose unnecessary mutability (e.g., instance `__dict__`).
-- Classes inherit and expose attributes/methods beyond the intended interface.
-- Instances allow access to internals by mistake or convention-breaking.
-- Closures ensure true immutability and locality, enforcing the Protocol contract
-  as the only visible surface.
-
-This pattern prioritizes:
-- Explicitness
-- Safety from misuse
-- Locality of state
-- Minimal and predictable surface
-
-All components are initialized and configured explicitly and return a 
-Protocol-compliant implementation with no shared or global state.
-
-Design Notes: Property-based constants & static exceptions
-
-- Constants (like event names, state tokens) are exposed via `@property` + `__slots__`
-  to prevent accidental overwrite or deletion, and to enforce immutability.
-
-- Exception classes are defined as static, named classes (not closures)
-  so they can be explicitly referenced in `except` clauses.
-
-This ensures explicit, immutable, and predictable interfaces, minimizing misuse.
-
-Method naming and decorator convention for API design.
-
-- Setter methods:
-    - Decorator: @staticmethod
-    - Name: set_*
-    - Description: Modifies internal state. Has side effects.
-
-- Simple getter properties:
-    - Decorator: @property
-    - Name: plain attribute name (e.g., foo)
-    - Description: Retrieves internal state. No side effects. Lightweight.
-
-- Complex or expensive getters:
-    - Decorator: @staticmethod
-    - Name: get_*
-    - Description: Retrieves derived or computed result. May involve calculation or side effects.
-
-This convention ensures:
-- Clear distinction between mutating and non-mutating operations.
-- Readability and predictability of the API.
-- Consistency with common Python practices.
-
-Use `get_*` only when the retrieval is not a trivial state access.
-
-
-This module defines closures that return concrete implementations of protocol interfaces.
-Each closure encapsulates state and logic locally and returns an implementation that
-conforms to the specified protocol.
-
-The internal implementation classes are defined inside the closures and intentionally
-named generically (e.g., '_Interface') to avoid coupling to the protocol’s specific name.
-This ensures the implementation remains correct and comprehensible even if the protocol
-name changes later.
-
-### Design Notes: Access Pattern
-
-- All operations must be performed through the interface instance returned by the `_setup_*()` function.
-- Accessing methods or properties directly on the class (without instantiating via the setup closure) is not supported or intended.
-- This ensures that the internal state remains properly encapsulated within the closure and that no global or shared state leaks through class-level access.
-- Always hold and use the instance returned by the setup function for any interaction.
-
-This design eliminates unnecessary choices and enforces a minimal surface.
-Its primary benefit is to reduce the cognitive load during implementation — not just future maintenance.
-
-Additional Note: I avoid using Enum because it contradicts Python’s philosophy that “readability counts.” To deny this principle is to deny Python itself.
+Note for tests: Internal state is intentionally hidden; tests may access it
+via .__closure__ references as a backdoor if needed.
 
 """
 
@@ -99,8 +19,7 @@ import asyncio
 import inspect
 import logging
 
-from typing import Awaitable, Optional, Protocol, Callable, Mapping, Tuple, Any, runtime_checkable,Type
-
+from typing import Any, Callable, Mapping, Optional, Type
 
 from internal import (
     State,
@@ -111,54 +30,17 @@ from internal import (
 )
 import internal as _setup
 
-@runtime_checkable
-class StateError(Protocol):
-    """Protocol for state-related error definitions."""
-
-    UnknownStateError: Type[Exception]
-    """Raised for unknown or unsupported state."""
-
-    InvalidStateError: Type[Exception]
-    """Raised when current state is invalid for the operation."""
-
-    TerminatedError: Type[Exception]
-    """Raised when state is TERMINATED and operation is invalid."""
-
-
-@runtime_checkable
-class StateObserver(Protocol):
-    """
-    Read-only observer of a three-state lifecycle (LOAD → ACTIVE → TERMINATED).
-
-    Provides access to the immutable state tokens, current state, and error definitions
-    without allowing transitions or modifications.
-    """
-
-    @property
-    def LOAD(_) -> object:
-        """State token: initial load state."""
-        ...
-
-    @property
-    def ACTIVE(_) -> object:
-        """State token: active state."""
-        ...
-
-    @property
-    def TERMINATED(_) -> object:
-        """State token: terminated state."""
-        ...
-
-    @property
-    def state(_) -> object:
-        """Current internal state."""
-        ...
-
-    @property
-    def errors(_) -> 'StateError':
-        """Error definitions for invalid state operations."""
-        ...
-
+from loop_engine_manual import (
+    StateObserver,
+    StateError,
+    LoopResultReader,
+    LoopInterruptObserver,
+    LoopException,
+    LoopError,
+    LoopSignal,
+    LoopLog,
+    LoopEngineHandle,
+)
 
 
 def _setup_state_observer(state: State) -> StateObserver:
@@ -186,118 +68,6 @@ def _setup_state_observer(state: State) -> StateObserver:
     return _Interface()
 
 
-@runtime_checkable
-class Context(Protocol):
-    """
-    Represents a user-defined context object passed to handlers and actions.
-    """
-
-@runtime_checkable
-class EventHandler(Protocol):
-    """
-    Implementation to be executed for an event.
-    """
-    def __call__(self, ctx: Context) -> Any:
-        """Execute with the given context."""
-        ...
-
-
-@runtime_checkable
-class Action(Protocol):
-    """
-    Executable within the circuit, takes a Context.
-    Can be sync or async.
-    """
-    def __call__(self, ctx: Context) -> Any:
-        """
-        Executes the action within the circuit loop
-        using the given context.
-        """
-        ...
-
-@runtime_checkable
-class Reactor(Protocol):
-    """
-    Reacts to lifecycle points (including both events and actions) and may update the Context.
-    """
-
-    def __call__(self, next_proc: str) -> Optional[Awaitable[None]]:
-        """
-        Handle a lifecycle point, identified by the tag, and optionally update the Context.
-        """
-        ...
-
-
-@runtime_checkable
-class ReactorFactory(Protocol):
-    """
-    Creates a (Reactor, Context) pair for a given LoopControl.
-
-    The Reactor handles lifecycle points (events and actions) 
-    and may update the Context. The Context is passed to handlers and actions.
-
-    Typically implemented as a closure that captures necessary state.
-    """
-
-    def __call__(self, control: LoopControl) -> Tuple[Reactor, Context]:
-        """
-        Produce a Reactor and its associated Context for the given control.
-        """
-        ...
-
-
-@runtime_checkable
-class LoopResultReader(Protocol):
-    """
-    Read-only view of the overall result and errors of a loop after it finishes.
-    This view allows accessing the recorded results and errors without allowing modification.
-
-    The underlying LoopResult is expected to be cleaned up by the driver.
-    Once `cleanup()` is called (which must be invoked when the loop is TERMINATED),
-    the internal state becomes undefined, and further access to the properties of this reader is not supported.
-
-    If .loop_result is accessed before the loop finishes, it holds PENDING_RESULT.
-    """
-
-    @property
-    def PENDING_RESULT(self) -> object:
-        """Marker: result is still pending."""
-        ...
-
-    @property
-    def NO_RESULT(self) -> object:
-        """Marker: loop produced no result."""
-        ...
-    
-    @property
-    def last_process(_) -> str:
-        """Return the recoded last process name."""
-        ...
-
-    @property
-    def loop_result(_) -> Any:
-        """Return the recorded final result."""
-        ...
-
-    @property
-    def circuit_error(_) -> Exception:
-        """Return the recorded circuit error if any."""
-        ...
-
-    @property
-    def event_reactor_error(_) -> Exception:
-        """Return the recorded event reactor error if any."""
-        ...
-
-    @property
-    def handler_error(_) -> Exception:
-        """Return the recorded handler error if any."""
-        ...
-
-    @property
-    def internal_error(_) -> Exception:
-        """Return the recorded internal error if any."""
-        ...
 
 
 def _setup_loop_result_reader(state: State, loop_result: LoopResult) -> LoopResultReader:
@@ -337,29 +107,6 @@ def _setup_loop_result_reader(state: State, loop_result: LoopResult) -> LoopResu
     return _Interface()
 
 
-@runtime_checkable
-class LoopInterruptObserver(Protocol):
-    """
-    Read-only view of the loop’s interrupt state.
-
-    Exposes the current mode (RUNNING or PAUSE) for inspection.
-    Does not allow controlling or modifying the interrupt flow.
-    """
-    @property
-    def RUNNING(_) -> object:
-        """Marker object indicating the loop is in RUNNING mode."""
-        ...
-
-    @property
-    def PAUSE(_) -> object:
-        """Marker object indicating the loop is in PAUSE mode."""
-        ...
-
-    @property
-    def mode(_) -> object:
-        """Current mode of the loop: either RUNNING or PAUSE."""
-        ...
-
 
 def _setup_loop_interrupt_observer(loop_interrupt: LoopInterrupt) -> LoopInterruptObserver:
     
@@ -377,67 +124,6 @@ def _setup_loop_interrupt_observer(loop_interrupt: LoopInterrupt) -> LoopInterru
     
     return _Interface()
 
-
-@runtime_checkable
-class LoopError(Protocol):
-    """
-    Protocol for loop-related error definitions.
-
-    Defines standard exceptions raised at specific phases
-    of the loop lifecycle.
-    """
-
-    EventReactorError: Type[Exception]
-    """
-    Raised when the event reactor fails. Does not include action reactor 
-    failures.
-    """
-
-    EventHandlerError: Type[Exception]
-    """Raised when the event handler fails. Does not include action failures."""
-
-    CircuitError: Type[Exception]
-    """
-    Raised when the circuit execution fails.
-    Includes failures in actions and action reactors.
-    """
-
-@runtime_checkable
-class LoopSignal(Protocol):
-    """
-    Protocol for loop control signals.
-
-    Defines exceptions used to signal control flow changes
-    in the loop lifecycle.
-    """
-
-    Break: Type[Exception]
-    """
-    Raised to break the loop immediately.
-    This is a control signal only and does not take any arguments.
-    """
-
-@runtime_checkable
-class LoopException(Protocol):
-    """
-    Protocol for loop exception definitions.
-
-    Provides access to loop-related error and signal classes.
-    """
-
-    @property
-    def errors(_) -> Type[LoopError]:
-        """
-        Returns the error definitions used in the loop.
-        """
-        ...
-    
-    @property
-    def signals(_) -> Type[LoopSignal]:
-        """
-        Returns the control signal definitions used in the loop.
-        """
-        ...
 
 def _setup_loop_exception() -> LoopException:
     class _LoopError(LoopError):
@@ -475,45 +161,6 @@ def _setup_loop_exception() -> LoopException:
     return _Interface()
 
 
-@runtime_checkable
-class LoopLog(Protocol):
-    """
-    Provides access to the loop’s logging configuration.
-
-    Allows setting a role name (once) and replacing the logger instance.
-    The current role and logger can also be retrieved.
-    """
-
-    @staticmethod
-    def set_role(role: str) -> None:
-        """
-        Sets the role name for the loop.
-        Can only be set once during the LOAD state.
-        """
-        ...
-    
-    @staticmethod
-    def set_logger(logger: logging.Logger) -> None:
-        """
-        Sets or replaces the logger instance.
-        Can be called multiple times to change the logger.
-        """
-        ...
-    
-    @property
-    def role(self) -> str:
-        """
-        Returns the current role name.
-        If no role was explicitly set, defaults to 'loop'.
-        """
-        ...
-    
-    @property
-    def logger(self) -> logging.Logger:
-        """
-        Returns the current logger instance.
-        """
-        ...
 
 def _setup_loop_log(state: State) -> LoopLog:
 
@@ -544,125 +191,8 @@ def _setup_loop_log(state: State) -> LoopLog:
     return _Interface()
 
 
-@runtime_checkable
-class LoopEngineHandle(Protocol):
-    """
-    Driver-facing handle for managing and observing the loop engine.
-
-    Provides methods to start, stop, and observe the loop lifecycle,
-    including registering actions and handlers, generating circuit code,
-    and monitoring state.
-
-    Exposes only the intended public API. Does not expose internal state or control flow.
-    """
-
-    @property
-    def log(self) -> LoopLog:
-        """Access to loop logger and role information."""
-        ...
-
-    @staticmethod
-    def set_on_start(fn: EventHandler) -> None:
-        """Register handler for loop start event."""
-        ...
-
-    @staticmethod
-    def set_on_end(fn: EventHandler) -> None:
-        """Register handler for loop end event."""
-        ...
-
-    @staticmethod
-    def set_on_stop(fn: EventHandler) -> None:
-        """Register handler for loop stop (canceled) event."""
-        ...
-
-    @staticmethod
-    def set_on_closed(fn: EventHandler) -> None:
-        """Register handler for loop cleanup event."""
-        ...
-
-    @staticmethod
-    def set_on_result(fn: EventHandler) -> None:
-        """Register handler for loop result event."""
-        ...
-
-    @staticmethod
-    def set_on_pause(fn: EventHandler) -> None:
-        """Register handler for loop pause event."""
-        ...
-
-    @staticmethod
-    def set_on_resume(fn: EventHandler) -> None:
-        """Register handler for loop resume event."""
-        ...
-
-    @staticmethod
-    def generate_circuit_code(name: str, irq: bool) -> str:
-        """Generate source code for the circuit function."""
-        ...
-
-    @staticmethod
-    def start() -> None:
-        """Start loop engine with pre-defined circuit."""
-        ...
-
-    @staticmethod
-    def start_with_compile(irq: bool) -> None:
-        """Compile and start loop engine with generated circuit."""
-        ...
-
-    @property
-    def stop(self) -> Callable[[], None]:
-        """Stop the loop task if running."""
-        ...
-
-    @property
-    def task_is_running(self) -> bool:
-        """True if the loop task is currently running."""
-        ...
-
-    @property
-    def pause(self) -> Callable[[], None]:
-        """Request loop pause at next safe point."""
-        ...
-
-    @property
-    def resume(self) -> Callable[[], None]:
-        """Request immediate loop resume."""
-        ...
-
-    @property
-    def append_action(self) -> Callable[..., None]:
-        """Register an action to the circuit."""
-        ...
-
-    @property
-    def set_event_reactor_factory(self) -> Callable[..., None]:
-        """Set factory for event reactor and context."""
-        ...
-
-    @property
-    def set_action_reactor_factory(self) -> Callable[..., None]:
-        """Set factory for action reactor and context."""
-        ...
-
-    @property
-    def state_observer(self) -> StateObserver:
-        """Read-only view of the current state (LOAD/ACTIVE/TERMINATED)."""
-        ...
-
-    @property
-    def running_observer(self) -> LoopInterruptObserver:
-        """Read-only view of the current run/pause mode."""
-        ...
-
-    @property
-    def loop_result(self) -> LoopResultReader:
-        """Read-only view of the final result and errors."""
-        ...
-
     
-def make_loop_engine_handle(static_circuit = None) -> LoopEngineHandle:
+def make_loop_engine_handle(static_circuit: Optional[Callable[..., Any]] = None) -> LoopEngineHandle:
 
     def _compile(circuit_name, circuit_code: str, action_ns: Mapping):
         namespace = {
@@ -805,7 +335,8 @@ def make_loop_engine_handle(static_circuit = None) -> LoopEngineHandle:
             return _circ_code_factory.generate_circuit_code(
                 name,
                 _act_registry.get_actions(),
-                irq
+                irq,
+                False
             )
         
         @staticmethod

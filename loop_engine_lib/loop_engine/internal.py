@@ -1,16 +1,28 @@
 
+"""
+interal.py
+-----------------
 
+Internal implementation for the loop_ending.py module.
+
+Regular classes are not used.
+State is enclosed in closures and exposed via the Protocol interface
+to control lifecycle and avoid accidental mutation after cleanup.
+
+Note for tests: Internal state is intentionally hidden; tests may access it
+via .__closure__ references as a backdoor if needed.
+
+"""
 
 import asyncio
 import inspect
 import string
 from types import MappingProxyType
-from typing import Any, Awaitable, Callable, Coroutine, FrozenSet, Mapping, Optional, Protocol, Tuple, Type, runtime_checkable, TYPE_CHECKING
-
-from loop_engine import EventHandler
+from typing import Any, Awaitable, Callable, Coroutine, Dict, FrozenSet, Mapping, Optional, Protocol, Tuple, Type, runtime_checkable, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from loop_engine import (
+    from loop_engine_manual import (
+        EventHandler,
         StateError,
         Action,
         ReactorFactory,
@@ -296,7 +308,7 @@ class EventHandleRegistry(Protocol):
         ...
 
 def setup_event_handler_registry(ev: LoopEvent, state: State) -> EventHandleRegistry:
-    _event_handlers:dict  = {}
+    _event_handlers: Dict[str, EventHandler]  = {}
 
     class _EventHandlerRegistry(EventHandleRegistry):
         @staticmethod
@@ -331,7 +343,7 @@ class ActionRegistry(Protocol):
     """
 
     @staticmethod
-    def get_actions() -> Mapping[str, Tuple[Action, str, bool]]:
+    def get_actions() -> Mapping[str, Tuple[Action, bool]]:
         """
         Return all registered actions as an immutable mapping.
         """
@@ -362,43 +374,22 @@ class ActionRegistry(Protocol):
         ...
 
 def setup_action_registry(state: State) -> ActionRegistry:
-
-    ACTION_SUFFIX = '_action'
-    MAX_ACTIONS = 26**3  # all 3-letter lowercase aliases
     
-    # Requires Python 3.7+ for guaranteed insertion order
-    _linear_actions_in_circuit:dict = {} # tuple: (hadler, raw_name, notify_ctx)
-
-    #generates a unique 3-letter alias for each action
-    def _label_action_by_index():
-        index = len(_linear_actions_in_circuit)
-        if index >= MAX_ACTIONS:
-            raise ValueError(
-                f"Too many actions: supports up to {MAX_ACTIONS}, got {index}")
-        
-        result = ""
-        for _ in range(3):
-            result = string.ascii_lowercase[index % 26] + result
-            index //= 26
-            if index == 0:
-                break
-        result = result + ACTION_SUFFIX
-        return result
+    _linear_actions_in_circuit:dict = {} # tuple: (hadler, notify_reactor)
     
     class _Interface(ActionRegistry):
         __slots__ = ()
         @staticmethod
-        def get_actions() -> Mapping[str, Tuple[Action, str, bool]]:
+        def get_actions() -> Mapping[str, Tuple[Action, bool]]:
             return MappingProxyType(_linear_actions_in_circuit)
         @staticmethod
         def append_action(name, fn, notify_reactor) -> None:
             def add_action():
-                label = _label_action_by_index()
-                _linear_actions_in_circuit[label] = (fn, str(name), notify_reactor)
+                _linear_actions_in_circuit[name] = (fn, notify_reactor)
             state.maintain_state(state.LOAD, add_action)
         @staticmethod
         def get_action_namespace() -> Mapping[str, Action]:
-            # l = lable, t = tuple(action func, raw_name, notify_ctx)
+            # l = lable, t = tuple(action func, notify_reactor)
             return {l :t[0] for l, t in _linear_actions_in_circuit.items()}
         @staticmethod
         def cleanup():
@@ -980,8 +971,9 @@ class CircuitCodeFactory(Protocol):
     @staticmethod
     def generate_circuit_code(
         circuit_name: str,
-        actions: Mapping[str, Tuple[Action, str, bool]],
-        irq: bool
+        actions: Mapping[str, Tuple[Action, bool]],
+        irq: bool,
+        secure: bool
     ) -> str:
         """
         Generate the source code of the circuit as a string.
@@ -993,6 +985,8 @@ class CircuitCodeFactory(Protocol):
             circuit_name: The name of the circuit function.
             actions: Mapping of action label → (callable, raw_name, notify_reactor).
             irq: Whether to include IRQ handling code.
+            secure: If True, uses generated secure aliases for action call names.
+                    If False, uses the original action names directly.
 
         Returns:
             The generated source code as a string.
@@ -1015,12 +1009,12 @@ def setup_circuit_code_factory() -> CircuitCodeFactory:
     _BASE_INDENT = ' ' * 12
     
     _ACTION_TEMPLATE = [
-        "{indent}r = {await_}{action_label}(context)",
+        "{indent}r = {await_}{call_name}(context)",
         "{indent}step.set_prev_result({action_raw_name}, r)",
         "",
     ]
     _ACTION_TEMPLATE_WITH_REACTOR = [
-        "{indent}reactor({action_raw_name})",
+        "{indent}reactor('{action_raw_name}')",
         *_ACTION_TEMPLATE
     ]
 
@@ -1032,13 +1026,31 @@ def setup_circuit_code_factory() -> CircuitCodeFactory:
         "{indent}await irq.wait_resume()",
     ]
 
+    ACTION_SUFFIX = '_action'
+    MAX_ACTIONS = 26**3  # all 3-letter lowercase aliases
+
+    #generates a unique 3-letter alias for each action
+    def _secure_alias(index: int):
+        if index <= 0 or index >= MAX_ACTIONS:
+            raise ValueError(f"Invalid index: {index}")
+        
+        result = ""
+        for _ in range(3):
+            result = string.ascii_lowercase[index % 26] + result
+            index //= 26
+            if index == 0:
+                break
+        result = result + ACTION_SUFFIX
+        return result
+
     class _Interface(CircuitCodeFactory):
         __slots__ = ()
         @staticmethod
         def generate_circuit_code(
                 circuit_name: str,
-                actions: Mapping[str, Tuple[Action, str, bool]],
-                irq: bool
+                actions: Mapping[str, Tuple[Action, bool]],
+                irq: bool,
+                secure = True,
         ) -> str:
             
             irq_code = (
@@ -1049,8 +1061,9 @@ def setup_circuit_code_factory() -> CircuitCodeFactory:
             
             async_circuit = False # cumulative flag
             action_buffer = []
-            for label, unit in actions.items():
-                action, raw_name, notify_reactor = unit
+            for i, (name, unit) in enumerate(actions.items()):
+                action, notify_reactor = unit
+                
                 template = (
                     "\n".join(_ACTION_TEMPLATE_WITH_REACTOR)
                     if notify_reactor else
@@ -1061,9 +1074,9 @@ def setup_circuit_code_factory() -> CircuitCodeFactory:
                 action_buffer.append(
                    template.format(
                         indent = _BASE_INDENT,
-                        action_raw_name = raw_name,
+                        action_raw_name = name,
                         await_ = await_,
-                        action_label = label
+                        call_name = _secure_alias(i) if secure else name
                     )
                 )
 
