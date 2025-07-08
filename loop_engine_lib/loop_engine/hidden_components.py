@@ -22,158 +22,25 @@ from typing import Any, Awaitable, Callable, Coroutine, Dict, FrozenSet, Mapping
 
 if TYPE_CHECKING:
     from loop_engine_manual import (
+        State,
+        LoopEvent,
+        StepSlot,
         EventHandler,
-        StateError,
         Action,
         ReactorFactory,
         LoopException,
+        LoopInterrupt
     )
 
 
 @runtime_checkable
-class LoopEvent(Protocol):
-    """
-    Protocol for standard loop lifecycle events and validation.
-    """
-
+class StateMachine(State, Protocol):
     @property
-    def START(_) -> str: 
-        """Event name for loop start."""
-        ...
-    @property
-    def PAUSE(_) -> str: 
-        """Event name for loop pause."""
-        ...
-    @property
-    def RESUME(_) -> str: 
-        """Event name for loop resume."""
-        ...
-    @property
-    def STOP_NORMALLY(_) -> str: 
-        """Event name for normal loop stop."""
-        ...
-    @property
-    def STOP_CANCELED(_) -> str: 
-        """Event name for canceled loop stop."""
-        ...
-    @property
-    def STOP_HANDLER_ERROR(_) -> str: 
-        """Event name when a event handler raises an error."""
-        ...
-    @property
-    def STOP_CIRCUIT_ERROR(_) -> str: 
-        """Event name when a circuit raises an error."""
-        ...
-    @property
-    def CLEANUP(_) -> str: 
-        """Event name for loop cleanup."""
-        ...
-    @property
-    def LOOP_RESULT(_) -> str: 
-        """Event name for final loop result."""
-        ...
-
-    @staticmethod
-    def is_valid_event(name: str) -> bool: 
-        """Return True if the given name is a defined event."""
-        ...
-    @property
-    def all_events(_) -> FrozenSet[str]: 
-        """Return all defined event names as a frozen set."""
-        ...
-
-
-def setup_loop_event() -> LoopEvent:
-    _START = 'on_start'
-
-    _PAUSE = 'on_pause'
-    _RESUME = 'on_resume'
-    
-    _STOP_NORMALLY = 'on_end'
-    _STOP_CANCELED = 'on_stop'
-    _STOP_HANDLER_ERROR = 'on_handler_exception'
-    _STOP_CIRCUIT_ERROR = 'on_circuit_exception'
-
-    _CLEANUP = 'on_closed'
-    _LOOP_RESULT = 'on_result'
-
-    _ALL_EVENTS = {
-        _START, _PAUSE, _RESUME, _STOP_NORMALLY,
-        _STOP_CANCELED, _STOP_HANDLER_ERROR, _STOP_CIRCUIT_ERROR,
-        _CLEANUP, _LOOP_RESULT,
-    }
-
-    class _Interface(LoopEvent):
-        @property
-        def START(_):
-            return _START
-        @property
-        def PAUSE(_):
-            return _PAUSE
-        @property
-        def RESUME(_):
-            return _RESUME            
-        @property
-        def STOP_NORMALLY(_):
-            return _STOP_NORMALLY
-        @property
-        def STOP_CANCELED(_):
-            return _STOP_CANCELED
-        @property
-        def STOP_HANDLER_ERROR(_):
-            return _STOP_HANDLER_ERROR
-        @property
-        def STOP_CIRCUIT_ERROR(_):
-            return _STOP_CIRCUIT_ERROR
-        @property
-        def CLEANUP(_):
-            return _CLEANUP
-        @property
-        def LOOP_RESULT(_):
-            return _LOOP_RESULT
-        
-        @staticmethod
-        def is_valid_event(name) -> bool:
-            return name in _ALL_EVENTS
-        @property
-        def all_events(_) -> FrozenSet[str]:
-            return frozenset(_ALL_EVENTS)
-        
-    return _Interface()
-
-
-
-@runtime_checkable
-class State(Protocol):
-    """
-    Manages a three-state transition (LOAD → ACTIVE → TERMINATED), 
-    with immutable tokens, current state tracking, and validation methods.
-    """
-
-    @property
-    def LOAD(self) -> object:
-        """State token: initial load state."""
-        ...
-
-
-    @property
-    def ACTIVE(self) -> object:
-        """State token: active state."""
-        ...
-
-    @property
-    def TERMINATED(self) -> object:
-        """State token: terminated state."""
-        ...
-
-    @property
-    def current_state(self) -> object:
-        """Current internal state."""
-        ...
-
-    @property
-    def errors(self) -> Type[StateError]:
-        """Error definitions for invalid state operations."""
+    def _realized(_) -> Type[State]:
+        """
+        このステートマシンが使用するステート型を返します
+        このメソッドはオブザーバーの作成のために定義されています
+        """
         ...
 
     @staticmethod
@@ -191,56 +58,34 @@ class State(Protocol):
         """Transition to `to` state without running a function."""
         ...
 
-def setup_state() -> State:
-    _LOAD = object()
-    _ACTIVE = object()
-    _TERMINATED = object()
+    @property
+    def current_state(_) -> object:
+        """Current internal state."""
+        ...
 
-    _ALL = (_LOAD, _ACTIVE, _TERMINATED)
 
-    _state = _LOAD
 
-    def _validate_state_value(state):
-        if not any(state is s for s in _ALL):
-            raise _StateError.UnknownStateError(
-                f"Unknown or unsupported state value: {state}")
+def setup_state_machine(state: State) -> StateMachine:
+
+    _state = state.LOAD
         
     def _require_state(expected):
-        _validate_state_value(expected)
+        state.validate_state_value(expected)
         if expected is not _state:
             err_log = f"State error: expected = {expected}, actual = {_state}"
-            if _state is _TERMINATED:
-                raise _StateError.TerminatedError(err_log)
-            raise _StateError.InvalidStateError(err_log)
+            if _state is state.TERMINATED:
+                raise state.errors.TerminatedError(err_log)
+            raise state.errors.InvalidStateError(err_log)
     
-    class _StateError(StateError):
-        __slots__ = ()
-        class UnknownStateError(Exception):
-            pass
-        class InvalidStateError(Exception):
-            pass
-        class TerminatedError(InvalidStateError):
-            pass
-
-    class _Interface(State):
+    class _Interface(StateMachine, type(state)):
         __slots__ = ()
         @property
-        def LOAD(_):
-            return _LOAD
-        @property
-        def ACTIVE(_):
-            return _ACTIVE
-        @property
-        def TERMINATED(_):
-            return _TERMINATED
-
+        def realized(_):
+            return type(state)
+        
         @property
         def current_state(_):
             return _state
-        
-        @property
-        def errors(_) -> Type[StateError]:
-            return _StateError
         
         @staticmethod
         def maintain_state(state, fn, *fn_args, **fn_kwargs):
@@ -250,11 +95,11 @@ def setup_state() -> State:
         @staticmethod
         def transit_state_with(to, fn, *fn_args, **fn_kwargs):
             nonlocal _state
-            _validate_state_value(to)
-            to_active = _state is _LOAD and to is _ACTIVE
-            to_terminal = _state is _ACTIVE and to is _TERMINATED
+            state.validate_state_value(to)
+            to_active = _state is state.LOAD and to is state.ACTIVE
+            to_terminal = _state is state.ACTIVE and to is state.TERMINATED
             if not (to_active or to_terminal):
-                raise _StateError.InvalidStateError(
+                raise state.errors.InvalidStateError(
                     f"Invalid transition: {_state} → {to}")
             if fn:
                 result = iface.maintain_state(
@@ -268,9 +113,10 @@ def setup_state() -> State:
         def transit_state(to):
             return iface.transit_state_with(to, None)
     
-    iface = _Interface()
+    iface = _Interface() # type: ignore ;_Interface(StateMachine, type(state)):
 
     return iface
+
 
 
 
@@ -307,7 +153,7 @@ class EventHandleRegistry(Protocol):
         """
         ...
 
-def setup_event_handler_registry(ev: LoopEvent, state: State) -> EventHandleRegistry:
+def setup_event_handler_registry(ev: LoopEvent, state: StateMachine) -> EventHandleRegistry:
     _event_handlers: Dict[str, EventHandler]  = {}
 
     class _EventHandlerRegistry(EventHandleRegistry):
@@ -373,7 +219,7 @@ class ActionRegistry(Protocol):
         """
         ...
 
-def setup_action_registry(state: State) -> ActionRegistry:
+def setup_action_registry(state: StateMachine) -> ActionRegistry:
     
     _linear_actions_in_circuit:dict = {} # tuple: (hadler, notify_reactor)
     
@@ -451,7 +297,7 @@ class ReactorRegistry(Protocol):
         """
         ...
 
-def setup_reactor_registry(state: State) -> ReactorRegistry:
+def setup_reactor_registry(state: StateMachine) -> ReactorRegistry:
 
     def _EVENT_REACTOR_FACTORY(control):
         """
@@ -505,7 +351,6 @@ def setup_reactor_registry(state: State) -> ReactorRegistry:
             _action_reactor_factory = None # type: ignore
 
     return _Interface()
-
 
 
 @runtime_checkable
@@ -593,6 +438,7 @@ class LoopResult(Protocol):
         """Clear all recorded results and errors."""
         ...
 
+
 def setup_loop_result() -> LoopResult:
 
     _PENDING_RESULT = object()
@@ -674,166 +520,13 @@ def setup_loop_result() -> LoopResult:
 
 
 
-@runtime_checkable
-class StepSlot(Protocol):
-    """
-    Temporary slot for holding the result and process name of the most recent step
-    (event or action) to pass into the next processing step.
-
-    Once `cleanup()` is called, the internal state becomes undefined 
-    and further access to properties is not supported.
-    """
-    @property
-    def UNSET(self) -> object:
-        """Marker object indicating an unset result."""
-        ...
-
-    @staticmethod
-    def set_prev_result(proc_name: str, result: Any) -> None:
-        """
-        Record the result and process name of the most recent step.
-        """
-        ...
-
-    @property
-    def prev_proc(_) -> str:
-        """
-        Return the process name of the most recent recorded step.
-        """
-        ...
-
-    @property
-    def prev_result(_) -> Any:
-        """
-        Return the result of the most recent recorded step.
-        """
-        ...
-
-    @staticmethod
-    def cleanup() -> None:
-        """
-        Clear the recorded process name and result.
-        """
-        ...
-
-def setup_step_slot() -> StepSlot:
-
-    _UNSET = object()
-
-    _prev_proc = '<unset>'
-    _prev_result = _UNSET
-
-    class _Interface(StepSlot):
-        __slots__ = ()
-        @property
-        def UNSET(_):
-            return _UNSET
-        @staticmethod
-        def set_prev_result(tag: str, result: Any):
-            nonlocal _prev_proc, _prev_result
-            _prev_proc = tag
-            _prev_result = result
-        @property
-        def prev_proc(_):
-            return _prev_proc
-        @property
-        def prev_result(_):
-            return _prev_result
-        @staticmethod
-        def cleanup() -> None:
-            nonlocal _prev_proc, _prev_result
-            _prev_proc = None
-            _prev_result = None
-
-    return _Interface()
 
 
-@runtime_checkable
-class LoopInterrupt(Protocol):
-    """
-    Controls and monitors the loop’s interrupt state, enabling controlled pause and resume.
 
-    The pause and resume flow is intentionally asymmetric:
-    - `request_pause()` only marks the pause request and does not unblock the loop immediately.
-      The loop remains running until `consume_pause_request()` is awaited, which clears the flag,
-      switches to PAUSE mode, and fires the PAUSE event.
-    - Conversely, `resume()` immediately signals a pending resume by setting the flag
-      and unblocking any `wait_resume()` call. When `perform_resume_event()` is awaited,
-      the flag is cleared, mode returns to RUNNING, and the RESUME event is fired.
 
-    This design allows the loop to reach a safe point before pausing, but allows resume
-    to be triggered instantly and asynchronously.
-    """
 
-    @property
-    def RUNNING(_) -> object:
-        """Marker object indicating the loop is in RUNNING mode."""
-        ...
 
-    @property
-    def PAUSE(_) -> object:
-        """Marker object indicating the loop is in PAUSE mode."""
-        ...
-
-    @property
-    def current_mode(self) -> object:
-        """Current mode of the loop: either RUNNING or PAUSE."""
-        ...
-
-    @property
-    def pause_requested(self) -> bool:
-        """True if a pause has been requested but not yet consumed."""
-        ...
-
-    @property
-    def resume_event_scheduled(self) -> bool:
-        """
-        True if the loop has already resumed (`resume()` called and unblocked)
-        but the RESUME event is still pending and will be fired by `perform_resume_event()`.
-        """
-        ...
-
-    @staticmethod
-    async def consume_pause_request(event_processor: Callable[[str], Awaitable[None]]) -> None:
-        """
-        Consume the pending pause request: clears the pause flag, switches to PAUSE mode,
-        fires the PAUSE event via `event_processor`, and resets the resume wait state.
-        """
-        ...
-
-    @staticmethod
-    async def perform_resume_event(event_processor: Callable[[str], Awaitable[None]]) -> None:
-        """
-        Perform the scheduled RESUME event: clears the resume flag, switches to RUNNING mode,
-        and fires the RESUME event via `event_processor`.
-        """
-        ...
-
-    @staticmethod
-    def request_pause() -> None:
-        """
-        Request that the loop pauses at its next safe point.
-        Sets the pause flag but does not block the loop immediately.
-        """
-        ...
-
-    @staticmethod
-    def resume() -> None:
-        """
-        Immediately signal that the loop should resume.
-        Sets the resume flag and unblocks `wait_resume()`.
-        """
-        ...
-
-    @staticmethod
-    async def wait_resume() -> None:
-        """
-        Await until a resume signal is issued via `resume()`.
-        Typically awaited while the loop is paused.
-        """
-        ...
-
-def setup_loop_interrupt(ev: LoopEvent) -> LoopInterrupt:
+def setup_loop_interrupt(ev: LoopEvent, control: 'LoopControl') -> LoopInterrupt:
     
     _RUNNING = object()
     _PAUSE = object()
@@ -842,6 +535,8 @@ def setup_loop_interrupt(ev: LoopEvent) -> LoopInterrupt:
     _event: asyncio.Event = asyncio.Event()
     _pause_requested: bool = False
     _resume_event_scheduled: bool = False
+
+    _event_processor = control.process_event
     
     class _Interface(LoopInterrupt):
         __slots__ = ()
@@ -855,17 +550,17 @@ def setup_loop_interrupt(ev: LoopEvent) -> LoopInterrupt:
         def current_mode(_):
             return _mode
         @staticmethod
-        async def consume_pause_request(event_processor):
+        async def consume_pause_request():
             nonlocal _mode, _pause_requested
             _pause_requested = False
-            await event_processor(ev.PAUSE)
+            await _event_processor(ev.PAUSE)
             _event.clear()
             _mode = _PAUSE
         @staticmethod
-        async def perform_resume_event(event_processor):
+        async def perform_resume_event():
             nonlocal _mode, _resume_event_scheduled
             _resume_event_scheduled = False
-            await event_processor(ev.RESUME)
+            await _event_processor(ev.RESUME)
             _mode = _RUNNING
         @staticmethod
         def request_pause():
@@ -923,7 +618,7 @@ class TaskControl(Protocol):
         """
         ...
 
-def setup_task_control(state: State) -> TaskControl:
+def setup_task_control(state: StateMachine) -> TaskControl:
 
     _task:Optional[asyncio.Task] = None
 
@@ -996,7 +691,10 @@ class CircuitCodeFactory(Protocol):
 def setup_circuit_code_factory() -> CircuitCodeFactory:
 
     _CIRCUIT_TEMPLATE = [
-        "{async_}def {name}(reactor, context, step, irq, ev_proc, signal):",
+        "{async_}def {name}(tools: CircuitTools):",  
+        "    irq = tools.irq",
+        "    signals = tools.signals",
+        "",
         "    try:",
         "        while True:", # see: _BASE_INDENT
         "{actions}",

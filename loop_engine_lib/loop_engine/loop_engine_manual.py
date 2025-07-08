@@ -166,13 +166,63 @@ circuit関数は呼び出し形式のみが定義され、関数の内容につ�
     キャンセルを含め、すべての例外が発生した場合、このラッパは直ちに停止せずon_closed,on_resultを
     実行して終了することを試みます。
 
+    
+Protocol Usage Note: In this module, Protocol inheritance is allowed even for has-a relationships,
+as long as the Protocol 'realizes' the required structure. In OOP with implementation,
+prefer composition for has-a.
+
 """
 
 import logging
-from typing import Any, Awaitable, Callable, Optional, Protocol, Tuple, Type, runtime_checkable, TYPE_CHECKING
+from typing import Any, Awaitable, Callable, FrozenSet, Optional, Protocol, Tuple, Type, runtime_checkable, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from internal import LoopControl
+    from loop_engine_lib.loop_engine.hidden_components import LoopControl
+
+@runtime_checkable
+class LoopEvent(Protocol):
+    """
+    Protocol for standard loop lifecycle events and validation.
+    """
+
+    @property
+    def START(_) -> str: 
+        """Event name for loop start."""
+        ...
+    @property
+    def PAUSE(_) -> str: 
+        """Event name for loop pause."""
+        ...
+    @property
+    def RESUME(_) -> str: 
+        """Event name for loop resume."""
+        ...
+    @property
+    def STOP_NORMALLY(_) -> str: 
+        """Event name for normal loop stop."""
+        ...
+    @property
+    def STOP_CANCELED(_) -> str: 
+        """Event name for canceled loop stop."""
+        ...
+        
+    @property
+    def CLEANUP(_) -> str: 
+        """Event name for loop cleanup."""
+        ...
+    @property
+    def LOOP_RESULT(_) -> str: 
+        """Event name for final loop result."""
+        ...
+
+    @staticmethod
+    def is_valid_event(name: str) -> bool: 
+        """Return True if the given name is a defined event."""
+        ...
+    @property
+    def all_events(_) -> FrozenSet[str]: 
+        """Return all defined event names as a frozen set."""
+        ...
 
 @runtime_checkable
 class StateError(Protocol):
@@ -189,12 +239,10 @@ class StateError(Protocol):
 
 
 @runtime_checkable
-class StateObserver(Protocol):
+class State(Protocol):
     """
-    Read-only observer of a three-state lifecycle (LOAD → ACTIVE → TERMINATED).
-
-    Provides access to the immutable state tokens, current state, and error definitions
-    without allowing transitions or modifications.
+    Manages a three-state transition (LOAD → ACTIVE → TERMINATED), 
+    with immutable tokens, current state tracking, and validation methods.
     """
 
     @property
@@ -213,15 +261,65 @@ class StateObserver(Protocol):
         ...
 
     @property
-    def state(_) -> object:
+    def errors(_) -> Type[StateError]:
+        """Error definitions for invalid state operations."""
+        ...
+    
+    @staticmethod
+    def validate_state_value(state: object):
+        """引数がいずれかのステートを表す場合Trueを返す"""
+        ...
+
+
+@runtime_checkable
+class StateMachineObserver(State, Protocol):
+    @property
+    def current_state(_) -> object:
         """Current internal state."""
         ...
 
+
+@runtime_checkable
+class StepSlot(Protocol):
+    """
+    Temporary slot for holding the result and process name of the most recent step
+    (event or action) to pass into the next processing step.
+
+    Once `cleanup()` is called, the internal state becomes undefined 
+    and further access to properties is not supported.
+    """
     @property
-    def errors(_) -> 'StateError':
-        """Error definitions for invalid state operations."""
+    def UNSET(self) -> object:
+        """Marker object indicating an unset result."""
         ...
 
+    @staticmethod
+    def set_prev_result(proc_name: str, result: Any) -> None:
+        """
+        Record the result and process name of the most recent step.
+        """
+        ...
+
+    @property
+    def prev_proc(_) -> str:
+        """
+        Return the process name of the most recent recorded step.
+        """
+        ...
+
+    @property
+    def prev_result(_) -> Any:
+        """
+        Return the result of the most recent recorded step.
+        """
+        ...
+
+    @staticmethod
+    def cleanup() -> None:
+        """
+        Clear the recorded process name and result.
+        """
+        ...
 
 
 @runtime_checkable
@@ -426,6 +524,92 @@ class LoopException(Protocol):
 
 
 @runtime_checkable
+class LoopInterrupt(Protocol):
+    """
+    Controls and monitors the loop’s interrupt state, enabling controlled pause and resume.
+
+    The pause and resume flow is intentionally asymmetric:
+    - `request_pause()` only marks the pause request and does not unblock the loop immediately.
+      The loop remains running until `consume_pause_request()` is awaited, which clears the flag,
+      switches to PAUSE mode, and fires the PAUSE event.
+    - Conversely, `resume()` immediately signals a pending resume by setting the flag
+      and unblocking any `wait_resume()` call. When `perform_resume_event()` is awaited,
+      the flag is cleared, mode returns to RUNNING, and the RESUME event is fired.
+
+    This design allows the loop to reach a safe point before pausing, but allows resume
+    to be triggered instantly and asynchronously.
+    """
+
+    @property
+    def RUNNING(_) -> object:
+        """Marker object indicating the loop is in RUNNING mode."""
+        ...
+
+    @property
+    def PAUSE(_) -> object:
+        """Marker object indicating the loop is in PAUSE mode."""
+        ...
+
+    @property
+    def current_mode(self) -> object:
+        """Current mode of the loop: either RUNNING or PAUSE."""
+        ...
+
+    @property
+    def pause_requested(self) -> bool:
+        """True if a pause has been requested but not yet consumed."""
+        ...
+
+    @property
+    def resume_event_scheduled(self) -> bool:
+        """
+        True if the loop has already resumed (`resume()` called and unblocked)
+        but the RESUME event is still pending and will be fired by `perform_resume_event()`.
+        """
+        ...
+
+    @staticmethod
+    async def consume_pause_request(event_processor: Callable[[str], Awaitable[None]]) -> None:
+        """
+        Consume the pending pause request: clears the pause flag, switches to PAUSE mode,
+        fires the PAUSE event via `event_processor`, and resets the resume wait state.
+        """
+        ...
+
+    @staticmethod
+    async def perform_resume_event(event_processor: Callable[[str], Awaitable[None]]) -> None:
+        """
+        Perform the scheduled RESUME event: clears the resume flag, switches to RUNNING mode,
+        and fires the RESUME event via `event_processor`.
+        """
+        ...
+
+    @staticmethod
+    def request_pause() -> None:
+        """
+        Request that the loop pauses at its next safe point.
+        Sets the pause flag but does not block the loop immediately.
+        """
+        ...
+
+    @staticmethod
+    def resume() -> None:
+        """
+        Immediately signal that the loop should resume.
+        Sets the resume flag and unblocks `wait_resume()`.
+        """
+        ...
+
+    @staticmethod
+    async def wait_resume() -> None:
+        """
+        Await until a resume signal is issued via `resume()`.
+        Typically awaited while the loop is paused.
+        """
+        ...
+
+
+@runtime_checkable
 class LoopLog(Protocol):
     """
     Provides access to the loop’s logging configuration.
@@ -465,6 +649,59 @@ class LoopLog(Protocol):
         """
         ...
 
+
+@runtime_checkable
+class CircuitTools(Protocol):
+    @property
+    def log(_) -> LoopLog:
+        """Provides a logger that records the progress of the loop and circuit."""
+        ...
+
+    @property
+    def irq(_) -> LoopInterrupt:
+        """Provides functionality to pause and resume the loop or circuit."""
+        ...
+
+    @property
+    def signals(_) -> LoopSignal:
+        """Defines the Break exception used to exit the loop."""
+        ...
+
+    @staticmethod
+    def call(fn: Action) -> Any:
+        """
+        Executes the specified action.
+        Runs only the action itself without invoking the reactor.
+        """
+        ...
+
+    @staticmethod
+    async def calla(fn: Action) -> Awaitable[Any]:
+        """
+        Executes the specified action asynchronously.
+        Runs only the action itself without invoking the reactor.
+        """
+        ...
+
+    @staticmethod
+    def calln(tag: str, fn: Action) -> Any:
+        """
+        Executes the specified action.
+        Notifies the reactor with the given tag while executing.
+        """
+        ...
+
+    @staticmethod
+    async def callan(tag: str, fn: Action) -> Awaitable[Any]:
+        """
+        Executes the specified action asynchronously.
+        Notifies the reactor with the given tag while executing.
+        """
+        ...
+
+@runtime_checkable
+class Circuit(Protocol):
+    def __call__(self, tools: CircuitTools) -> None: ...
 
 
 @runtime_checkable
@@ -570,7 +807,7 @@ class LoopEngineHandle(Protocol):
         ...
 
     @property
-    def state_observer(self) -> StateObserver:
+    def state_observer(self) -> StateMachineObserver:
         """Read-only view of the current state (LOAD/ACTIVE/TERMINATED)."""
         ...
 
