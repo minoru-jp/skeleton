@@ -789,6 +789,164 @@ def setup_circuit_code_factory() -> CircuitCodeFactory:
     return _Interface()
 
 
+def setup_circuit_code_factory() -> CircuitCodeFactory:
+
+    _CIRCUIT_SNIPPETS = [
+         "{async_}def {name}(tools: CircuitTools):",  
+        ("    call = tools.call", 'call'),
+        ("    calla = tools.calla", 'calla'),
+        ("    calln = tools.calln", 'calln'),
+        ("    callan = tools.callan", 'callan'),
+        ("    irq = tools.irq", 'uses_irq'),
+         "    signals = tools.signals",
+         "",
+         "    try:",
+         "        while True:", # see: _BASE_INDENT
+         "{actions}",
+         "{irq}",
+         "        except signal.Break:",
+         "            pass",
+    ]
+
+    def _build_circuit_template(flags: dict[str, bool]):
+        template = []
+        for e in _CIRCUIT_SNIPPETS:
+            if not isinstance(e, tuple):
+                template.append(e)
+                continue
+            code, query = e
+            if flags[query]:
+                template.append(code)
+
+        return template
+
+
+    # Spaces used for indentation inside the while True: block
+    _BASE_INDENT = ' ' * 12
+    
+    _CALLING_CONVENTION = {
+        "call": "call({call_name})",
+        "calla": "await calla({call_name})",
+        "calln": "calln('{action_raw_name}', {call_name})",
+        "callan": "await callan('{action_raw_name}', {call_name})",
+    }
+
+    def _select_calling_convention(async_: bool, notify_reactor: bool):
+        if async_:
+            if notify_reactor:
+                return "callan"
+            else:
+                return "calla"
+        else:
+            if notify_reactor:
+                return "calln"
+            else:
+                return "call"
+
+
+    _IRQ_TEMPLATE = [
+        "{indent}if irq.pause_requested:",
+        "{indent}    await irq.consume_pause_result(ev_proc)",
+        "{indent}if irq.resume_event_scheduled:",
+        "{indent}    await irq.perform_resume_event(ev_proc)",
+        "{indent}await irq.wait_resume()",
+    ]
+
+    ACTION_SUFFIX = '_action'
+    MAX_ACTIONS = 26**3  # all 3-letter lowercase aliases
+
+    #generates a unique 3-letter alias for each action
+    def _secure_alias(index: int):
+        if index <= 0 or index >= MAX_ACTIONS:
+            raise ValueError(f"Invalid index: {index}")
+        
+        result = ""
+        for _ in range(3):
+            result = string.ascii_lowercase[index % 26] + result
+            index //= 26
+            if index == 0:
+                break
+        result = result + ACTION_SUFFIX
+        return result
+
+    class _Interface(CircuitCodeFactory):
+        __slots__ = ()
+        @staticmethod
+        def generate_circuit_code(
+                circuit_name: str,
+                actions: Mapping[str, Tuple[Action, bool]],
+                irq: bool,
+                secure = True,
+        ) -> str:
+            
+            deploy_mapping = {
+                "irq": irq,
+                "call": False,
+                "calla": False,
+                "calln": False,
+                "callan": False}
+            for a in actions:
+                fn, notify_reactor = a
+                async_ = inspect.iscoroutinefunction(a)
+                key = _select_calling_convention(async_, notify_reactor)
+                deploy_mapping[key] = True
+            
+            async_circuit = irq or deploy_mapping['calla'] or deploy_mapping['callan']
+
+            circuit_template = _build_circuit_template(deploy_mapping)
+            
+            irq_code = (
+                "\n".join(_IRQ_TEMPLATE).format(indent = _BASE_INDENT) 
+                if irq else 
+                ""
+            )
+            
+            call_buffer = []
+            for i, (name, unit) in enumerate(actions.items()):
+                action, notify_reactor = unit
+                is_async = inspect.iscoroutinefunction(action)
+                cconv = _CALLING_CONVENTION[
+                    _select_calling_convention(is_async, notify_reactor)
+                ]
+                call_buffer.append(
+                   cconv.format(
+                        action_raw_name = name,
+                        call_name = _secure_alias(i) if secure else name
+                    )
+                )
+
+            _circuit_code = "\n".join(circuit_template).format(
+                async_ = "async " if irq or async_circuit else "",
+                name = circuit_name,
+                actions = "\n".join(call_buffer),
+                irq = irq_code
+            )
+            return _circuit_code
+
+    return _Interface()
+
+
+h = setup_circuit_code_factory()
+
+def action(_):
+    pass
+async def action_async(_):
+    pass
+
+print(
+    h.generate_circuit_code(
+        '_test_circuit',
+        {
+            'action1': (action, True),
+            'action2': (action_async, False)
+        },
+        True,
+        True
+    )
+)
+
+
+
 @runtime_checkable
 class LoopControl(Protocol):
     """
