@@ -20,6 +20,8 @@ import string
 from types import MappingProxyType
 from typing import Any, Awaitable, Callable, Coroutine, Dict, FrozenSet, Mapping, Optional, Protocol, Tuple, Type, runtime_checkable, TYPE_CHECKING
 
+import loop_engine_manual as pub
+
 if TYPE_CHECKING:
     from loop_engine_manual import (
         State,
@@ -34,9 +36,9 @@ if TYPE_CHECKING:
 
 
 @runtime_checkable
-class StateMachine(State, Protocol):
+class StateMachine(pub.State, Protocol):
     @property
-    def _realized(_) -> Type[State]:
+    def _realized(_) -> Type[pub.State]:
         """
         このステートマシンが使用するステート型を返します
         このメソッドはオブザーバーの作成のために定義されています
@@ -688,105 +690,105 @@ class CircuitCodeFactory(Protocol):
         """
         ...
 
-def setup_circuit_code_factory() -> CircuitCodeFactory:
+# def setup_circuit_code_factory() -> CircuitCodeFactory:
 
-    _CIRCUIT_TEMPLATE = [
-        "{async_}def {name}(tools: CircuitTools):",  
-        "    irq = tools.irq",
-        "    signals = tools.signals",
-        "",
-        "    try:",
-        "        while True:", # see: _BASE_INDENT
-        "{actions}",
-        "{irq}",
-        "        except signal.Break:",
-        "            pass",
-    ]
+#     _CIRCUIT_TEMPLATE = [
+#         "{async_}def {name}(tools: CircuitTools):",  
+#         "    irq = tools.irq",
+#         "    signals = tools.signals",
+#         "",
+#         "    try:",
+#         "        while True:", # see: _BASE_INDENT
+#         "{actions}",
+#         "{irq}",
+#         "        except signal.Break:",
+#         "            pass",
+#     ]
 
-    # Spaces used for indentation inside the while True: block
-    _BASE_INDENT = ' ' * 12
+#     # Spaces used for indentation inside the while True: block
+#     _BASE_INDENT = ' ' * 12
     
-    _ACTION_TEMPLATE = [
-        "{indent}r = {await_}{call_name}(context)",
-        "{indent}step.set_prev_result({action_raw_name}, r)",
-        "",
-    ]
-    _ACTION_TEMPLATE_WITH_REACTOR = [
-        "{indent}reactor('{action_raw_name}')",
-        *_ACTION_TEMPLATE
-    ]
+#     _ACTION_TEMPLATE = [
+#         "{indent}r = {await_}{call_name}(context)",
+#         "{indent}step.set_prev_result({action_raw_name}, r)",
+#         "",
+#     ]
+#     _ACTION_TEMPLATE_WITH_REACTOR = [
+#         "{indent}reactor('{action_raw_name}')",
+#         *_ACTION_TEMPLATE
+#     ]
 
-    _IRQ_TEMPLATE = [
-        "{indent}if irq.pause_requested:",
-        "{indent}    await irq.consume_pause_result(ev_proc)",
-        "{indent}if irq.resume_event_scheduled:",
-        "{indent}    await irq.perform_resume_event(ev_proc)",
-        "{indent}await irq.wait_resume()",
-    ]
+#     _IRQ_TEMPLATE = [
+#         "{indent}if irq.pause_requested:",
+#         "{indent}    await irq.consume_pause_result(ev_proc)",
+#         "{indent}if irq.resume_event_scheduled:",
+#         "{indent}    await irq.perform_resume_event(ev_proc)",
+#         "{indent}await irq.wait_resume()",
+#     ]
 
-    ACTION_SUFFIX = '_action'
-    MAX_ACTIONS = 26**3  # all 3-letter lowercase aliases
+#     ACTION_SUFFIX = '_action'
+#     MAX_ACTIONS = 26**3  # all 3-letter lowercase aliases
 
-    #generates a unique 3-letter alias for each action
-    def _secure_alias(index: int):
-        if index <= 0 or index >= MAX_ACTIONS:
-            raise ValueError(f"Invalid index: {index}")
+#     #generates a unique 3-letter alias for each action
+#     def _secure_alias(index: int):
+#         if index <= 0 or index >= MAX_ACTIONS:
+#             raise ValueError(f"Invalid index: {index}")
         
-        result = ""
-        for _ in range(3):
-            result = string.ascii_lowercase[index % 26] + result
-            index //= 26
-            if index == 0:
-                break
-        result = result + ACTION_SUFFIX
-        return result
+#         result = ""
+#         for _ in range(3):
+#             result = string.ascii_lowercase[index % 26] + result
+#             index //= 26
+#             if index == 0:
+#                 break
+#         result = result + ACTION_SUFFIX
+#         return result
 
-    class _Interface(CircuitCodeFactory):
-        __slots__ = ()
-        @staticmethod
-        def generate_circuit_code(
-                circuit_name: str,
-                actions: Mapping[str, Tuple[Action, bool]],
-                irq: bool,
-                secure = True,
-        ) -> str:
+#     class _Interface(CircuitCodeFactory):
+#         __slots__ = ()
+#         @staticmethod
+#         def generate_circuit_code(
+#                 circuit_name: str,
+#                 actions: Mapping[str, Tuple[Action, bool]],
+#                 irq: bool,
+#                 secure = True,
+#         ) -> str:
             
-            irq_code = (
-                "\n".join(_IRQ_TEMPLATE).format(indent = _BASE_INDENT) 
-                if irq else 
-                ""
-            )
+#             irq_code = (
+#                 "\n".join(_IRQ_TEMPLATE).format(indent = _BASE_INDENT) 
+#                 if irq else 
+#                 ""
+#             )
             
-            async_circuit = False # cumulative flag
-            action_buffer = []
-            for i, (name, unit) in enumerate(actions.items()):
-                action, notify_reactor = unit
+#             async_circuit = False # cumulative flag
+#             action_buffer = []
+#             for i, (name, unit) in enumerate(actions.items()):
+#                 action, notify_reactor = unit
                 
-                template = (
-                    "\n".join(_ACTION_TEMPLATE_WITH_REACTOR)
-                    if notify_reactor else
-                    "\n".join(_ACTION_TEMPLATE)
-                )
-                await_ = "await " if inspect.iscoroutinefunction(action) else ""
-                async_circuit |= bool(await_)
-                action_buffer.append(
-                   template.format(
-                        indent = _BASE_INDENT,
-                        action_raw_name = name,
-                        await_ = await_,
-                        call_name = _secure_alias(i) if secure else name
-                    )
-                )
+#                 template = (
+#                     "\n".join(_ACTION_TEMPLATE_WITH_REACTOR)
+#                     if notify_reactor else
+#                     "\n".join(_ACTION_TEMPLATE)
+#                 )
+#                 await_ = "await " if inspect.iscoroutinefunction(action) else ""
+#                 async_circuit |= bool(await_)
+#                 action_buffer.append(
+#                    template.format(
+#                         indent = _BASE_INDENT,
+#                         action_raw_name = name,
+#                         await_ = await_,
+#                         call_name = _secure_alias(i) if secure else name
+#                     )
+#                 )
 
-            _circuit_code = "\n".join(_CIRCUIT_TEMPLATE).format(
-                async_ = "async " if irq or async_circuit else "",
-                name = circuit_name,
-                actions = "\n".join(action_buffer),
-                irq = irq_code
-            )
-            return _circuit_code
+#             _circuit_code = "\n".join(_CIRCUIT_TEMPLATE).format(
+#                 async_ = "async " if irq or async_circuit else "",
+#                 name = circuit_name,
+#                 actions = "\n".join(action_buffer),
+#                 irq = irq_code
+#             )
+#             return _circuit_code
 
-    return _Interface()
+#     return _Interface()
 
 
 def setup_circuit_code_factory() -> CircuitCodeFactory:
@@ -885,7 +887,7 @@ def setup_circuit_code_factory() -> CircuitCodeFactory:
                 "calla": False,
                 "calln": False,
                 "callan": False}
-            for a in actions:
+            for _, a in actions.items():
                 fn, notify_reactor = a
                 async_ = inspect.iscoroutinefunction(a)
                 key = _select_calling_convention(async_, notify_reactor)
@@ -926,24 +928,6 @@ def setup_circuit_code_factory() -> CircuitCodeFactory:
     return _Interface()
 
 
-h = setup_circuit_code_factory()
-
-def action(_):
-    pass
-async def action_async(_):
-    pass
-
-print(
-    h.generate_circuit_code(
-        '_test_circuit',
-        {
-            'action1': (action, True),
-            'action2': (action_async, False)
-        },
-        True,
-        True
-    )
-)
 
 
 
