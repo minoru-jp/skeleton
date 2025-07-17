@@ -23,11 +23,15 @@ T_in = TypeVar("T_in", contravariant=True)
 @runtime_checkable
 class Signal(Protocol):
     @property
-    def Break(_) -> Type[Exception]:
+    def Redo(_) -> Type[Exception]:
         ...
     
     @property
-    def Continue(_) -> Type[Exception]:
+    def Graceful(_) -> Type[Exception]:
+        ...
+    
+    @property
+    def Resigned(_) -> Type[Exception]:
         ...
 
 @runtime_checkable
@@ -114,21 +118,32 @@ def setup_ContextFull(
         event_message: Mapping[str, Any],
         routine_message: Message):
     
-    class Break(Exception):
+    class Redo(Exception):
         pass
 
-    class Continue(Exception):
+    class ReturnValue(Exception):
+        def __init__(self, obj: Any):
+            self.result = obj
+
+    class Graceful(ReturnValue):
+        pass
+
+    class Resigned(ReturnValue):
         pass
 
     class _Signal(Signal):
         @property
-        def Break(_) -> Type[Exception]:
-            return Break
+        def Redo(_) -> Type[Exception]:
+            return Redo
         
         @property
-        def Continue(_) -> Type[Exception]:
-            return Continue
-
+        def Graceful(_) -> Type[Exception]:
+            return Graceful
+        
+        @property
+        def Resigned(_) -> Type[Exception]:
+            return Resigned
+        
     _signal = _Signal()
 
     _routine_process_record_reader = routine_process_record.get_reader()
