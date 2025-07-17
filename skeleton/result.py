@@ -1,20 +1,10 @@
 
-from asyncio import Protocol
-from typing import Any
+from __future__ import annotations
 
+from typing import Any, Protocol
 
-class LastProcessReader(Protocol):
-    @property
-    def NO_RECORDED(_) -> object:
-        ...
+from .record import ProcessRecordReader, NO_RECORDED_SENTINEL
 
-    @property
-    def recorded_last_process(_) -> str:
-        ...
-    
-    @property
-    def recorded_last_result(_) -> Any:
-        ...
 
 class ResultReader(Protocol):
     @property
@@ -34,16 +24,20 @@ class ResultReader(Protocol):
         ...
 
     @property
-    def process(_) -> LastProcessReader:
+    def evnet(_) -> ProcessRecordReader:
+        ...
+    
+    @property
+    def routine(_) -> ProcessRecordReader:
         ...
 
 class ResultFull(Protocol):
     @staticmethod
-    def set_recorded_last_process(name: str) -> None:
+    def set_event_process_record(record: ProcessRecordReader) -> None:
         ...
     
     @staticmethod
-    def set_recorded_last_result(obj: Any) -> None:
+    def set_routine_process_record(record: ProcessRecordReader) -> None:
         ...
     
     @staticmethod
@@ -69,37 +63,14 @@ def setup_ResultFull() -> ResultFull:
         def __repr__(self):
             return "no result"
     
-    class _NoRecoded:
-        __slots__ = ()
-        def __repr__(self):
-            return "no recoded"
-        
     _NO_RESULT = _NoResult()
-    _NO_RECORDED = _NoRecoded()
 
     _result = _NO_RESULT
     _outcome = str(_NO_RESULT)
     _error = None
 
-    _last_recorded_process = str(_NO_RECORDED)
-    _last_recorded_result = _NO_RECORDED
-
-    _context = None
-
-    class _LastProcessReader(LastProcessReader):
-        @property
-        def NO_RECORDED(_) -> object:
-            return _NO_RECORDED
-        
-        @property
-        def recorded_last_process(_) -> str:
-            return _last_recorded_process
-    
-        @property
-        def recorded_last_result(_) -> Any:
-            return _last_recorded_result
-    
-    _last_process_reader = _LastProcessReader()
+    _event_process_record = NO_RECORDED_SENTINEL
+    _routine_process_record = NO_RECORDED_SENTINEL
 
     class _ResultReaderInterface(ResultReader):
         @property
@@ -119,24 +90,29 @@ def setup_ResultFull() -> ResultFull:
             return _error
 
         @property
-        def process(_) -> LastProcessReader:
-            return _last_process_reader
+        def evnet(_) -> ProcessRecordReader:
+            return _event_process_record
+        
+        @property
+        def routine(_) -> ProcessRecordReader:
+            return _routine_process_record
+
     
     _result_reader = _ResultReaderInterface()
 
     class _Interface(ResultFull):
         @staticmethod
-        def set_recorded_last_process(name: str) -> None:
-            nonlocal _last_recorded_process
-            _last_recorded_process = name
+        def set_event_process_record(record: ProcessRecordReader) -> None:
+            nonlocal _event_process_record
+            _event_process_record = record.get_snapshot()
+            
+        @staticmethod
+        def set_routine_process_record(record: ProcessRecordReader) -> None:
+            nonlocal _routine_process_record
+            _routine_process_record = record.get_snapshot()
         
         @staticmethod
-        def set_recorded_last_result(obj: Any) -> None:
-            nonlocal _last_recorded_result
-            _last_recorded_result = obj
-        
-        @staticmethod
-        def set_granceful(obj: Any) -> None:
+        def set_graceful(obj: Any) -> None:
             nonlocal _outcome, _result
             _outcome = 'graceful'
             _result = obj
