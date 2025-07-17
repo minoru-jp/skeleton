@@ -4,15 +4,15 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Generic, Literal, Mapping, Optional, Protocol, Tuple, Type, TypeVar, cast, runtime_checkable
 
 
-from .step import setup_StepSlot as _setup_StepSlot
+from .record import setup_ProcessRecordFull as _setup_StepSlot
 
 
 if TYPE_CHECKING:
     from .log import Log
     from .subroutine import Subroutine, SubroutineFull, CallerAccessor, FunctionAccessor
-    from .pauser import Pauser
+    from .control import Pauser
     from .report import ReportReader
-    from .step import StepSlot
+    from .record import ProcessRecordReader
     from .report import Message
 
 T = TypeVar("T")
@@ -101,7 +101,7 @@ class ContextFull(Protocol, Generic[T]):
         ...
 
     @staticmethod
-    def get_step() -> StepSlot:
+    def get_step() -> ProcessRecordReader:
         ...
     
     @staticmethod
@@ -238,7 +238,7 @@ def setup_ContextFull(
             _field = field
         
         @staticmethod
-        def get_step() -> StepSlot:
+        def get_step() -> ProcessRecordReader:
             return _step
         
         @staticmethod

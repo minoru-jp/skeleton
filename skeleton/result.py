@@ -84,6 +84,8 @@ def setup_ResultFull() -> ResultFull:
     _last_recorded_process = str(_NO_RECORDED)
     _last_recorded_result = _NO_RECORDED
 
+    _context = None
+
     class _LastProcessReader(LastProcessReader):
         @property
         def NO_RECORDED(_) -> object:

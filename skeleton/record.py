@@ -3,8 +3,7 @@
 from typing import Any, Protocol, runtime_checkable
 
 
-@runtime_checkable
-class StepSlot(Protocol):
+class ProcessRecordReader(Protocol):
     @property
     def UNSET(self) -> object:
         ...
@@ -25,14 +24,17 @@ class StepSlot(Protocol):
     def cleanup() -> None:
         ...
 
-def setup_StepSlot() -> StepSlot:
+class ProcessRecordFull(Protocol):
+    ...
+
+def setup_ProcessRecordFull() -> ProcessRecordFull:
 
     _UNSET = object()
 
     _prev_proc: str = '<unset>'
     _prev_result: Any = _UNSET
 
-    class _Interface(StepSlot):
+    class _Interface(ProcessRecordFull):
         __slots__ = ()
         @property
         def UNSET(_):

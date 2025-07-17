@@ -9,7 +9,7 @@ from .context import T_in
 
 if TYPE_CHECKING:
     from .context import Context
-    from .step import StepSlot
+    from .record import ProcessRecordReader
 
 CAST = TypeVar("CAST")
 
@@ -37,7 +37,7 @@ SecureNameMapper = Callable[[Optional[str]], Optional[str]]
 @runtime_checkable
 class SubroutineFull(Protocol):
     @staticmethod
-    def get_accessor(context: Context, step: StepSlot) -> CallerAccessor:
+    def get_accessor(context: Context, step: ProcessRecordReader) -> CallerAccessor:
         ...
     
     @staticmethod
@@ -71,7 +71,7 @@ class SubroutineFull(Protocol):
 
 def setup_SubroutineFull() -> SubroutineFull:
 
-    def _get_wrapper(call_name: str, fn: Subroutine, context: Context, step: StepSlot):
+    def _get_wrapper(call_name: str, fn: Subroutine, context: Context, step: ProcessRecordReader):
         async_ = inspect.iscoroutinefunction(fn)
         set_result = step.set_result
         if async_:
@@ -104,7 +104,7 @@ def setup_SubroutineFull() -> SubroutineFull:
     class _Imple(SubroutineFull):
         __slots__ = ()
         @staticmethod
-        def get_accessor(context: Context, step: StepSlot) -> CallerAccessor:
+        def get_accessor(context: Context, step: ProcessRecordReader) -> CallerAccessor:
 
             _wrapped_subroutines = {} # call name: wrapped subroutine
 
