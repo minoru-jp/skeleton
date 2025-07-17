@@ -30,7 +30,7 @@ class ResultReader(Protocol):
         ...
 
     @property
-    def evnet(_) -> ProcessRecordReader:
+    def event(_) -> ProcessRecordReader:
         ...
     
     @property
@@ -100,7 +100,7 @@ def setup_ResultFull(log: Log) -> ResultFull:
             return _error
 
         @property
-        def evnet(_) -> ProcessRecordReader:
+        def event(_) -> ProcessRecordReader:
             return _event_process_record
         
         @property
