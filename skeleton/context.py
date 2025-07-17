@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Generic, Literal, Mapping, Optional, Protocol, Tuple, Type, TypeVar, cast, runtime_checkable
 
 
-from .record import setup_ProcessRecordFull as _setup_StepSlot
+from .record import setup_ProcessRecordFull
 
 
 if TYPE_CHECKING:
@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from .subroutine import Subroutine, SubroutineFull, CallerAccessor, FunctionAccessor
     from .control import Pauser
     from .report import ReportReader
-    from .record import ProcessRecordReader
+    from .record import ProcessRecordFull, ProcessRecordReader
     from .report import Message
 
 T = TypeVar("T")
@@ -113,6 +113,7 @@ def setup_ContextFull(
         log: Log,
         subroutine_full: SubroutineFull,
         pauser: Pauser,
+        routine_process_record: ProcessRecordFull,
         environment: Mapping[str, Any],
         event_message: Mapping[str, Any],
         routine_message: Message):
@@ -133,8 +134,6 @@ def setup_ContextFull(
             return Continue
 
     _signal = _Signal()
-    
-    _step = _setup_StepSlot()
 
     class _PrevResultReaderInterface(PrevResultReader):
         @property
