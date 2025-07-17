@@ -5,55 +5,75 @@ from typing import Any, Protocol, runtime_checkable
 
 class ProcessRecordReader(Protocol):
     @property
-    def UNSET(self) -> object:
+    def NO_RECORDED(_) -> object:
         ...
 
+    @property
+    def last_recorded_process(_) -> str:
+        ...
+    
+    @property
+    def last_recorded_result(_) -> Any:
+        ...
+
+
+class ProcessRecordFull(Protocol):
+    @staticmethod
+    def get_process_record_reader() -> ProcessRecordReader:
+        ...
+    
     @staticmethod
     def set_result(proc_name: str, result: Any) -> None:
-        ...
-
-    @property
-    def prev_proc(_) -> str:
-        ...
-
-    @property
-    def prev_result(_) -> Any:
         ...
 
     @staticmethod
     def cleanup() -> None:
         ...
 
-class ProcessRecordFull(Protocol):
-    ...
-
 def setup_ProcessRecordFull() -> ProcessRecordFull:
+    
+    class _NoRecoded:
+        __slots__ = ()
+        def __repr__(self):
+            return "no recoded"
+        
+    _NO_RECORDED = _NoRecoded()
 
-    _UNSET = object()
+    _last_recorded_process = str(_NO_RECORDED)
+    _last_recorded_result = _NO_RECORDED
 
-    _prev_proc: str = '<unset>'
-    _prev_result: Any = _UNSET
+
+    class _Reader(ProcessRecordReader):
+        @property
+        def NO_RECORDED(_) -> object:
+            return _NO_RECORDED
+        
+        @property
+        def last_recorded_process(_) -> str:
+            return _last_recorded_process
+    
+        @property
+        def last_recorded_result(_) -> Any:
+            return _last_recorded_result
+    
+    _reader = _Reader()
 
     class _Interface(ProcessRecordFull):
-        __slots__ = ()
-        @property
-        def UNSET(_):
-            return _UNSET
         @staticmethod
-        def set_result(proc_name: str, result: Any):
-            nonlocal _prev_proc, _prev_result
-            _prev_proc = proc_name
-            _prev_result = result
-        @property
-        def prev_proc(_):
-            return _prev_proc
-        @property
-        def prev_result(_):
-            return _prev_result
+        def get_process_record_reader() -> ProcessRecordReader:
+            return _reader
+        
+        @staticmethod
+        def set_result(proc_name: str, result: Any) -> None:
+            nonlocal _last_recorded_process, _last_recorded_result
+            _last_recorded_process = proc_name
+            _last_recorded_result = result
+
         @staticmethod
         def cleanup() -> None:
-            nonlocal _prev_proc, _prev_result
-            _prev_proc = '<unset>'
-            _prev_result = _UNSET
+            nonlocal _last_recorded_process, _last_recorded_result
+            _last_recorded_process = str(_NO_RECORDED)
+            _last_recorded_result = _NO_RECORDED
 
     return _Interface()
+
