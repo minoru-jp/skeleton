@@ -3,12 +3,18 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
+from .log import Log
 from .record import ProcessRecordReader, NO_RECORDED_SENTINEL
+
 
 
 class ResultReader(Protocol):
     @property
     def NO_RESULT(_) -> object:
+        ...
+
+    @property
+    def log(_) -> Log:
         ...
         
     @property
@@ -56,7 +62,7 @@ class ResultFull(Protocol):
     def get_reader() -> ResultReader:
         ...
 
-def setup_ResultFull() -> ResultFull:
+def setup_ResultFull(log: Log) -> ResultFull:
 
     class _NoResult:
         __slots__ = ()
@@ -76,6 +82,10 @@ def setup_ResultFull() -> ResultFull:
         @property
         def NO_RESULT(_) -> object:
             return _NO_RESULT
+        
+        @property
+        def log(_) -> Log:
+            return log
         
         @property
         def result(_) -> Any:
