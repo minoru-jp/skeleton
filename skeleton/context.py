@@ -9,7 +9,7 @@ from .step import setup_StepSlot as _setup_StepSlot
 
 if TYPE_CHECKING:
     from .log import Log
-    from .action import Action, ActionFull, CallerAccessor, FunctionAccessor
+    from .subroutine import Subroutine, SubroutineFull, CallerAccessor, FunctionAccessor
     from .pauser import Pauser
     from .report import ReportReader
     from .step import StepSlot
@@ -111,7 +111,7 @@ class ContextFull(Protocol, Generic[T]):
 
 def setup_ContextFull(
         log: Log,
-        action_full: ActionFull,
+        subroutine_full: SubroutineFull,
         pauser: Pauser,
         environment: Mapping[str, Any],
         event_message: Mapping[str, Any],
@@ -229,8 +229,8 @@ def setup_ContextFull(
                     raise RuntimeError("ContextFull has been cleaned up")
                 else:
                     raise RuntimeError("Internal error")
-            _caller_accessor = action_full.get_accessor(_context, _step)
-            _function_accessor = action_full.get_raw_accessor()
+            _caller_accessor = subroutine_full.get_accessor(_context, _step)
+            _function_accessor = subroutine_full.get_raw_accessor()
         
         @staticmethod
         def set_field(field: T) -> None:

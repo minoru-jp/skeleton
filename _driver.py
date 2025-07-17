@@ -17,22 +17,17 @@ async def puyo(context: Context[str]):
     pass
 
 class Acc(Protocol):
-    def action1(self, context: Context[str]) -> Any: ...
-    def action2(self, context: Context[str]) -> Any: ...
+    def sburoutine1(self, context: Context[str]) -> Any: ...
+    def subroutine2(self, context: Context[str]) -> Any: ...
 
 def circuit(context: Context[str]):
-    actions = context.caller(Acc)
+    subroutines = context.caller(Acc)
     
 
 handle = make_skeleton_handle(str)
 
-handle.append_action(piyo)
-handle.append_action(puyo) # wrong type action
+handle.append_subroutine(piyo)
+handle.append_subroutine(puyo) 
 
-print(handle.code_on_trial(code_template)) # generates routine code for static definition with copy&paste
-
-# print(handle.code_on_trial(code_template))
-
-# handle.trial(code_template) # excutes generated routine by CodeTemplate
-
+print(handle.code_on_trial(code_template))
 

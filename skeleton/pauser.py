@@ -2,7 +2,7 @@
 import asyncio
 from typing import Optional, Protocol, Type, runtime_checkable
 
-from .action import ActionCaller
+from .subroutine import SubroutineCaller
 
 
 @runtime_checkable
@@ -116,7 +116,7 @@ def setup_PauserFull() -> PauserFull:
     class _RoutineInterface(Pauser, type(_observer_interface)):
         __slots__ = ()
         @staticmethod
-        async def consume_on_pause_requested(s: Optional[ActionCaller] = None, n: Optional[ActionCaller] = None) -> None:
+        async def consume_on_pause_requested(s: Optional[SubroutineCaller] = None, n: Optional[SubroutineCaller] = None) -> None:
             nonlocal _mode, _pause_requested
             if _pause_requested:
                 _pause_requested = False
@@ -128,7 +128,7 @@ def setup_PauserFull() -> PauserFull:
                     _mode = _PAUSE
                     if n: n()
         @staticmethod
-        async def consume_resumed_flag(s: Optional[ActionCaller] = None, n: Optional[ActionCaller] = None) -> None:
+        async def consume_resumed_flag(s: Optional[SubroutineCaller] = None, n: Optional[SubroutineCaller] = None) -> None:
             nonlocal _resumed_flag, _super_resume_active
             if _resumed_flag:
                 _resumed_flag = False

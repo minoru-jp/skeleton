@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Mapping, Optional
 
-from ..action import Action, SecureNameMapper
+from ..subroutine import Subroutine, SecureNameMapper
 
 from . import util as _util
 from . import snippet as _snip
@@ -28,7 +28,7 @@ class LinearLoop(_prot.CodeTemplate):
     def _internal_generate_routine_code(
             self,
             func: _block.Block,
-            actions: _prot.Mapping[str, Action],
+            actions: _prot.Mapping[str, Subroutine],
             spa: str,
             pa: str,
             sra: str,
@@ -70,7 +70,7 @@ class LinearLoop(_prot.CodeTemplate):
 
         return func
     
-    def generate_routine_code(self, type_: type, actions: Mapping[str, Action]) -> str:
+    def generate_routine_code(self, type_: type, actions: Mapping[str, Subroutine]) -> str:
         buffer = []
         _prot.render_accessor_protocols(buffer, actions)
         routine = _block.Block(_util.get_routine_func_definition(type_, self.param_name))
@@ -86,7 +86,7 @@ class LinearLoop(_prot.CodeTemplate):
         )
         return "\n".join(routine.render(buffer))
     
-    def generate_trial_routine_code(self, name: str, actions: Mapping[str, Action], mapper: SecureNameMapper) -> str:
+    def generate_trial_routine_code(self, name: str, actions: Mapping[str, Subroutine], mapper: SecureNameMapper) -> str:
         buffer = []
         routine = _block.Block(_util.get_routine_func_definition(None, name))
         routine.add(_util.deploy_actions(actions, trial = True))

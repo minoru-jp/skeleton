@@ -2,23 +2,23 @@
 import inspect
 from typing import Callable, Mapping, MutableSequence, Optional, Protocol, runtime_checkable
 
-from .. import action as _act
+from .. import subroutine as _act
 
 from . import block as _block
 
 @runtime_checkable
 class CodeTemplate(Protocol):
-    def generate_routine_code(self, type_: type, actions: Mapping[str, _act.Action]) -> str:
+    def generate_routine_code(self, type_: type, actions: Mapping[str, _act.Subroutine]) -> str:
         ...
     
-    def generate_trial_routine_code(self, name: str, actions: Mapping[str, _act.Action], mapper: _act.SecureNameMapper) -> str:
+    def generate_trial_routine_code(self, name: str, actions: Mapping[str, _act.Subroutine], mapper: _act.SecureNameMapper) -> str:
         ...
 
 CALLER = "CallerProtocol"
 
 FUNCTION = "FunctionProtocol"
 
-def render_accessor_protocols(buffer: MutableSequence[str], actions: Mapping[str, _act.Action]) ->  MutableSequence[str]:
+def render_accessor_protocols(buffer: MutableSequence[str], actions: Mapping[str, _act.Subroutine]) ->  MutableSequence[str]:
     acc = _block.Block([
         "@runetime_checkable",
         f"class {CALLER}(Protocol):"

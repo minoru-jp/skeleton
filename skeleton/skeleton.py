@@ -10,7 +10,7 @@ from . import state as mod_state
 from . import log as mod_log
 from . import event as mod_event
 from . import context as mod_context
-from . import action as mod_action
+from . import subroutine as mod_sub
 from . import pauser as mod_pauser
 from . import codegen as mod_codegen
 from . import report as mod_report
@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from .log import LogFull, Log
     from .event import EventHandlerFull, EventHandler
     from .context import ContextFull
-    from .action import Action, ActionFull
+    from .subroutine import Subroutine, SubroutineFull
     from .pauser import PauserFull
     from .report import ReportFull, ReportReader, Message
     from .routine import Routine
@@ -101,7 +101,7 @@ class SkeletonHandle(Protocol, Generic[mod_context.T]):
         ...
     
     @staticmethod
-    def append_action(action: Action[mod_context.T], name: Optional[str] = None) -> None:
+    def append_subroutine(fn: Subroutine[mod_context.T], name: Optional[str] = None) -> None:
         ...
     
     @property
@@ -257,7 +257,7 @@ def make_skeleton_handle(mode: Routine[mod_context.T_in] | Type[mod_context.T_in
     _pauser_full = mod_pauser.setup_PauserFull()
     
     _event_full = mod_event.setup_EventHandlerFull()
-    _action_full = mod_action.setup_ActionRegistry()
+    _subroutine_full = mod_sub.setup_SubroutineFull()
     
     _report_full = mod_report.setup_ReportFull(_log_full)
 
@@ -265,7 +265,7 @@ def make_skeleton_handle(mode: Routine[mod_context.T_in] | Type[mod_context.T_in
     
     _context_full = mod_context.setup_ContextFull(
         _log_full,
-        _action_full,
+        _subroutine_full,
         _pauser_full.get_routine_interface(),
         _report_full.get_environment().mapping,
         _report_full.get_event_message().mapping,
@@ -368,10 +368,10 @@ def make_skeleton_handle(mode: Routine[mod_context.T_in] | Type[mod_context.T_in
             return _report_full.get_environment()
         
         @staticmethod
-        def append_action(action: Action[mod_context.T_in], name: Optional[str] = None) -> None:
+        def append_subroutine(fn: Subroutine[mod_context.T_in], name: Optional[str] = None) -> None:
             _state_full.maintain_state(
                 _state_full.LOAD,
-                _action_full.append_action, action, name)
+                _subroutine_full.append_subroutine, fn, name)
         
         @property
         def state_observer(_) -> mod_state.UsageStateObserver:
@@ -385,28 +385,28 @@ def make_skeleton_handle(mode: Routine[mod_context.T_in] | Type[mod_context.T_in
         def code(ct: mod_codegen.CodeTemplate):
             if _field_type is None:
                 raise RuntimeError("Not in code generation mode.")
-            return ct.generate_routine_code(_field_type, _action_full.get_actions())
+            return ct.generate_routine_code(_field_type, _subroutine_full.get_subroutines())
         
         @staticmethod
         def code_on_trial(ct: mod_codegen.CodeTemplate):
-            _action_full.remap_to_secure_action_name()
+            _subroutine_full.remap_to_secure_subroutine_name()
             code = ct.generate_trial_routine_code(
                 "trial_routine",
-                _action_full.get_actions(),
-                _action_full.translate_raw_to_secure_name
+                _subroutine_full.get_subroutines(),
+                _subroutine_full.translate_raw_to_secure_name
             )
-            _action_full.remap_to_raw_action_name()
+            _subroutine_full.remap_to_raw_subroutine_name()
             return code
         
         @staticmethod
         def trial(ct: mod_codegen.CodeTemplate):
             ROUTINE_NAME = "trial_routine"
             _state_full.transit_state(_state_full.ACTIVE)
-            _action_full.remap_to_secure_action_name()
+            _subroutine_full.remap_to_secure_subroutine_name()
             code = ct.generate_trial_routine_code(
                 ROUTINE_NAME,
-                _action_full.get_actions(),
-                _action_full.translate_raw_to_secure_name
+                _subroutine_full.get_subroutines(),
+                _subroutine_full.translate_raw_to_secure_name
             )
             dst = {}
             exec(code, {}, dst)
