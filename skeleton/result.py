@@ -47,7 +47,11 @@ class ResultFull(Protocol):
         ...
     
     @staticmethod
-    def set_result(outcome: str, obj: Any) -> None:
+    def set_graceful(obj: Any) -> None:
+        ...
+    
+    @staticmethod
+    def set_resigned(obj: Any) -> None:
         ...
     
     @staticmethod
@@ -126,9 +130,15 @@ def setup_ResultFull() -> ResultFull:
             _last_recorded_result = obj
         
         @staticmethod
-        def set_result(outcome: str, obj: Any) -> None:
+        def set_granceful(obj: Any) -> None:
             nonlocal _outcome, _result
-            _outcome = outcome
+            _outcome = 'graceful'
+            _result = obj
+        
+        @staticmethod
+        def set_resigned(obj: Any) -> None:
+            nonlocal _outcome, _result
+            _outcome = 'resigned'
             _result = obj
         
         @staticmethod
