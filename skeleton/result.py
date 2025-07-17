@@ -1,12 +1,24 @@
 
+from asyncio import Protocol
+from typing import Any
 
-class ResultReader(Protocol):
+
+class LastProcessReader(Protocol):
     @property
-    def graceful(_) -> Any:
+    def recorded_last_process(_) -> str:
         ...
     
     @property
-    def resigned(_) -> Any:
+    def recorded_last_result(_) -> Any:
+        ...
+
+class ResultReader(Protocol):
+    @property
+    def result(_) -> Any:
+        ...
+    
+    @property
+    def outcome(_) -> str:
         ...
 
     @property
@@ -16,9 +28,49 @@ class ResultReader(Protocol):
     @property
     def subroutine(_) -> LastProcessReader:
         ...
-    
-    @property
-    def 
 
 class ResultFull(Protocol):
     ...
+
+def setup_ResultFull() -> ResultFull:
+
+    class _NoResult:
+        __slots__ = ()
+        def __repr__(self):
+            return "no result"
+        
+    _NO_RESULT = _NoResult()
+
+    _result = _NO_RESULT
+    _outcome = str(_NO_RESULT)
+    _error = None
+
+
+    class _LastProcessReader(LastProcessReader):
+        @property
+        def recorded_last_process(_) -> str:
+            
+    
+        @property
+        def recorded_last_result(_) -> Any:
+            ...
+
+    class _ReaderInterface(ResultReader):
+        @property
+        def result(_) -> Any:
+            return _result
+        
+        @property
+        def outcome(_) -> str:
+            return _outcome
+            
+        @property
+        def error(_) -> Exception | None:
+            return _error
+
+        @property
+        def subroutine(_) -> LastProcessReader:
+            ...
+
+    return _Interface()
+
