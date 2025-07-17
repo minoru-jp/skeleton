@@ -18,7 +18,7 @@ class ResultReader(Protocol):
         ...
         
     @property
-    def result(_) -> Any:
+    def return_value(_) -> Any:
         ...
     
     @property
@@ -71,7 +71,7 @@ def setup_ResultFull(log: Log) -> ResultFull:
     
     _NO_RESULT = _NoResult()
 
-    _result = _NO_RESULT
+    _return_value = _NO_RESULT
     _outcome = str(_NO_RESULT)
     _error = None
 
@@ -88,8 +88,8 @@ def setup_ResultFull(log: Log) -> ResultFull:
             return log
         
         @property
-        def result(_) -> Any:
-            return _result
+        def return_value(_) -> Any:
+            return _return_value
         
         @property
         def outcome(_) -> str:
@@ -123,15 +123,15 @@ def setup_ResultFull(log: Log) -> ResultFull:
         
         @staticmethod
         def set_graceful(obj: Any) -> None:
-            nonlocal _outcome, _result
+            nonlocal _outcome, _return_value
             _outcome = 'graceful'
-            _result = obj
+            _return_value = obj
         
         @staticmethod
         def set_resigned(obj: Any) -> None:
-            nonlocal _outcome, _result
+            nonlocal _outcome, _return_value
             _outcome = 'resigned'
-            _result = obj
+            _return_value = obj
         
         @staticmethod
         def set_error(e: Exception) -> None:
