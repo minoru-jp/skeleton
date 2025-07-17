@@ -6,7 +6,7 @@ from . import log
 from . import context
 
 
-class Message(Protocol):
+class Messenger(Protocol):
     @staticmethod
     def update(key: str, value: Any) -> None:
         ...
@@ -21,25 +21,13 @@ class Message(Protocol):
         ...
 
 @runtime_checkable
-class ReportReader(Protocol):
+class Message(Protocol):
     @property
     def log(_) -> log.Log:
         ...
-
-    @property
-    def error(_) -> Exception | None:
-        ...
     
     @property
-    def last_routine_process(_) -> str | None:
-        ...
-
-    @property
-    def last_routine_result(_) -> Any:
-        ...
-    
-    @property
-    def event_message(_) -> Message:
+    def event_messenger(_) -> Messenger:
         ...
 
     @property
@@ -56,33 +44,21 @@ class ReportReader(Protocol):
 
 
 @runtime_checkable
-class ReportFull(Protocol):
+class MessageFull(Protocol):
     @staticmethod
-    def get_reader() -> ReportReader:
-        ...
-    
-    @staticmethod
-    def set_error(e: Exception) -> None:
+    def get_reader() -> Message:
         ...
 
     @staticmethod
-    def set_last_routine_process(process: str) -> None:
+    def get_environment() -> Messenger:
         ...
     
     @staticmethod
-    def set_last_routine_result(result: Any) -> None:
+    def get_event_messenger() -> Messenger:
         ...
 
     @staticmethod
-    def get_environment() -> Message:
-        ...
-    
-    @staticmethod
-    def get_event_message() -> Message:
-        ...
-
-    @staticmethod
-    def get_routine_message() -> Message:
+    def get_routine_messenger() -> Messenger:
         ...
     
     @staticmethod
@@ -94,18 +70,14 @@ class ReportFull(Protocol):
         ...
     
 
-def setup_ReportFull(log: log.Log) -> ReportFull:
+def setup_MessageFull(log: log.Log) -> MessageFull:
 
-    _error = None
-    _last_routine_process = None
-    _last_routine_result = None
     _event_name: str = '<unset>'
-
 
     _environment: dict[str, Any] = {}
     _read_only_environment = MappingProxyType(_environment)
     
-    class _EnvironmentInterface(Message):
+    class _EnvironmentInterface(Messenger):
         __slots__ = ()
         @staticmethod
         def update(key: str, value: Any) -> None:
@@ -132,7 +104,7 @@ def setup_ReportFull(log: log.Log) -> ReportFull:
     _event_message: dict[str, Any] = {}
     _read_only_event_message = MappingProxyType(_event_message)
 
-    class _EventMessageInterface(Message):
+    class _EventMessengerInterface(Messenger):
         __slots__ = ()
         @staticmethod
         def update(key: str, value: Any) -> None:
@@ -153,12 +125,12 @@ def setup_ReportFull(log: log.Log) -> ReportFull:
             return _read_only_event_message
 
     
-    _event_message_interface = _EventMessageInterface()
+    _event_messenger_interface = _EventMessengerInterface()
 
     _routine_message: dict[str, Any] = {}
     _read_only_routine_message = MappingProxyType(_routine_message)
 
-    class _RoutineMessageInterface(Message):
+    class _RoutineMessengerInterface(Messenger):
         __slots__ = ()
         @staticmethod
         def update(key: str, value: Any) -> None:
@@ -178,38 +150,24 @@ def setup_ReportFull(log: log.Log) -> ReportFull:
         def mapping(_) -> Mapping[str, Any]:
             return _read_only_routine_message
     
-    _routine_message_interface = _RoutineMessageInterface()
+    _routine_messenger_interface = _RoutineMessengerInterface()
 
 
 
-    def setup_ReportReader() -> ReportReader:
+    # Use closure to capture the current state for snapshots
+    def setup_Message() -> Message:
         
-        _snapshot_error = _error
-        _snapshot_last_routine_process = _last_routine_process
-        _snapshot_last_routine_result = _last_routine_result
         _snapshot_event_name = _event_name
 
-        class _Interface(ReportReader):
+        class _Interface(Message):
             __slots__ = ()
             @property
             def log(_) -> log.Log:
                 return log
             
             @property
-            def error(_) -> Exception | None:
-                return _snapshot_error
-            
-            @property
-            def last_routine_process(_) -> str | None:
-                return _snapshot_last_routine_process
-
-            @property
-            def last_routine_result(_) -> Any:
-                return _snapshot_last_routine_result
-            
-            @property
-            def event_message(_) -> Message:
-                return _event_message_interface
+            def event_messenger(_) -> Messenger:
+                return _event_messenger_interface
             
             @property
             def environment(_) -> Mapping[str, Any]:
@@ -227,38 +185,23 @@ def setup_ReportFull(log: log.Log) -> ReportFull:
     
 
     
-    class _Interface(ReportFull):
+    class _Interface(MessageFull):
         __slots__ = ()
         @staticmethod
-        def get_reader() -> ReportReader:
-            return setup_ReportReader()
-        
-        @staticmethod
-        def set_error(e: Exception) -> None:
-            nonlocal _error
-            _error = e
+        def get_reader() -> Message:
+            return setup_Message()
 
         @staticmethod
-        def set_last_routine_process(process: str) -> None:
-            nonlocal _last_routine_process
-            _last_routine_process = process
-        
-        @staticmethod
-        def set_last_routine_result(result: Any) -> None:
-            nonlocal _last_routine_result
-            _last_routine_result = result
-
-        @staticmethod
-        def get_environment() -> Message:
+        def get_environment() -> Messenger:
             return _environment_interface
         
         @staticmethod
-        def get_event_message() -> Message:
-            return _event_message_interface
+        def get_event_messenger() -> Messenger:
+            return _event_messenger_interface
         
         @staticmethod
-        def get_routine_message() -> Message:
-            return _routine_message_interface
+        def get_routine_messenger() -> Messenger:
+            return _routine_messenger_interface
         
         @staticmethod
         def set_event_name(event_name: str) -> None:
