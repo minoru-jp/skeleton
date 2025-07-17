@@ -5,12 +5,12 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Mapping, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from .report import ReportReader
+    from .message import Message
 
 
 @runtime_checkable
 class EventHandler(Protocol):
-    def __call__(self, report: ReportReader) -> Any:
+    def __call__(self, message: Message) -> Any:
         ...
 
 @runtime_checkable
@@ -33,9 +33,9 @@ def setup_EventHandlerFull() -> EventHandlerFull:
         'on_start', 'on_continue', 'on_end', 'on_cancel', 'on_close'
     ]
 
-    def _DEFAULT_EVENT_HANDLER(report: ReportReader):
-        log = report.log
-        log.logger.info(f"[{log.role}] {report.environment['event']}")
+    def _DEFAULT_EVENT_HANDLER(message: Message):
+        log = message.log
+        log.logger.info(f"[{log.role}] {message.environment['event']}")
     
     _event_handlers: dict[str, EventHandler]  = {k: _DEFAULT_EVENT_HANDLER for k in _ALL_EVENTS}
 
