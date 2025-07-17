@@ -55,6 +55,10 @@ class ResultFull(Protocol):
         ...
     
     @staticmethod
+    def set_error(e: Exception) -> None:
+        ...
+    
+    @staticmethod
     def get_result_reader() -> ResultReader:
         ...
 
@@ -140,6 +144,11 @@ def setup_ResultFull() -> ResultFull:
             nonlocal _outcome, _result
             _outcome = 'resigned'
             _result = obj
+        
+        @staticmethod
+        def set_error(e: Exception) -> None:
+            nonlocal _error
+            _error = e
         
         @staticmethod
         def get_result_reader() -> ResultReader:
