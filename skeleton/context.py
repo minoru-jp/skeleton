@@ -101,10 +101,6 @@ class ContextFull(Protocol, Generic[T]):
         ...
 
     @staticmethod
-    def get_step() -> ProcessRecordReader:
-        ...
-    
-    @staticmethod
     def cleanup() -> None:
         ...
     
@@ -135,14 +131,16 @@ def setup_ContextFull(
 
     _signal = _Signal()
 
+    _routine_process_record_reader = routine_process_record.get_reader()
+
     class _PrevResultReaderInterface(PrevResultReader):
         @property
         def process(_) -> str:
-            return _step.prev_proc
+            return _routine_process_record_reader.last_recorded_process
         
         @property
         def result(_) -> Any:
-            return _step.prev_result
+            return _routine_process_record_reader.last_recorded_result
     
     _prev_result_reader = _PrevResultReaderInterface()
 
@@ -228,17 +226,13 @@ def setup_ContextFull(
                     raise RuntimeError("ContextFull has been cleaned up")
                 else:
                     raise RuntimeError("Internal error")
-            _caller_accessor = subroutine_full.get_accessor(_context, _step)
+            _caller_accessor = subroutine_full.get_accessor(_context, routine_process_record)
             _function_accessor = subroutine_full.get_raw_accessor()
         
         @staticmethod
         def set_field(field: T) -> None:
             nonlocal _field
             _field = field
-        
-        @staticmethod
-        def get_step() -> ProcessRecordReader:
-            return _step
         
         @staticmethod
         def cleanup() -> None:
