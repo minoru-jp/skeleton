@@ -30,7 +30,14 @@ class ResultReader(Protocol):
         ...
 
 class ResultFull(Protocol):
-    ...
+    @staticmethod
+    def get_result_reader(
+        result: Any,
+        outcome: str,
+        last_recorded_process: Any,
+        last_recorded_result: Any,
+    ) -> ResultReader:
+        ...
 
 def setup_ResultFull() -> ResultFull:
 
@@ -45,11 +52,10 @@ def setup_ResultFull() -> ResultFull:
     _outcome = str(_NO_RESULT)
     _error = None
 
-
     class _LastProcessReader(LastProcessReader):
         @property
         def recorded_last_process(_) -> str:
-            
+            ...
     
         @property
         def recorded_last_result(_) -> Any:
@@ -70,6 +76,16 @@ def setup_ResultFull() -> ResultFull:
 
         @property
         def subroutine(_) -> LastProcessReader:
+            ...
+        
+    class _Interface(ResultFull):
+        @staticmethod
+        def get_result_reader(
+            result: Any,
+            outcome: str,
+            last_recorded_process: Any,
+            last_recorded_result: Any,
+        ) -> ResultReader:
             ...
 
     return _Interface()
