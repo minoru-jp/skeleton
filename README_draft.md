@@ -41,7 +41,7 @@ EventHandler:
 
 Routine:
 - routine(context: Context[T])の呼び出し形式を持ち、skeletonがラップの対象にする関数
-- ユーザーによる定義のほか、CodeTempalateによる自動生成によって生み出される
+- ユーザーによる定義のほか、CodeTemplateによる自動生成によって生み出される
 
 SubRoutine:
 - .append_subroutine()で任意の数登録できる
@@ -102,7 +102,7 @@ def subroutine(context: Context[Any]):
 
 handle = make_skeleton_handle(routine)
 
-handle.log.set_role("exsample")
+handle.log.set_role("example")
 
 # 各EventHandlerはデフォルトでイベント名をロギングする
 
@@ -112,3 +112,7 @@ task = handle.start()
 await task
 
 ```
+
+Routine の動作について、確実に保証されるのは .start() による開始のみです。
+停止・一時停止・再開が想定通りに動作するかどうかは Routine の実装に依存します。
+そのため、これらのインターフェースは .request 内にまとめられています。
