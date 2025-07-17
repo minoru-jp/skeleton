@@ -16,7 +16,7 @@ def get_routine_func_definition(type_: Optional[type], name: str):
         signature = _snip.SIGNATURE.format(arg_type = type_str)
     )
 
-def deploy_actions(actions: Mapping[str, _act.Subroutine], trial: bool) -> list[str]:
+def deploy_subroutines(actions: Mapping[str, _act.Subroutine], trial: bool) -> list[str]:
     deploy_buffer = []
     template = _snip.DEPLOY_FUNC if not trial else _snip.DEPLOY_TRIAL_FUNC
     for name in actions.keys():

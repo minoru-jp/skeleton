@@ -8,17 +8,17 @@ from . import block as _block
 
 @runtime_checkable
 class CodeTemplate(Protocol):
-    def generate_routine_code(self, type_: type, actions: Mapping[str, _act.Subroutine]) -> str:
+    def generate_routine_code(self, type_: type, subs: Mapping[str, _act.Subroutine]) -> str:
         ...
     
-    def generate_trial_routine_code(self, name: str, actions: Mapping[str, _act.Subroutine], mapper: _act.SecureNameMapper) -> str:
+    def generate_trial_routine_code(self, name: str, subs: Mapping[str, _act.Subroutine], mapper: _act.SecureNameMapper) -> str:
         ...
 
 CALLER = "CallerProtocol"
 
 FUNCTION = "FunctionProtocol"
 
-def render_accessor_protocols(buffer: MutableSequence[str], actions: Mapping[str, _act.Subroutine]) ->  MutableSequence[str]:
+def render_accessor_protocols(buffer: MutableSequence[str], subs: Mapping[str, _act.Subroutine]) ->  MutableSequence[str]:
     acc = _block.Block([
         "@runetime_checkable",
         f"class {CALLER}(Protocol):"
@@ -27,8 +27,8 @@ def render_accessor_protocols(buffer: MutableSequence[str], actions: Mapping[str
         "@runtime_checkable",
         f"class {FUNCTION}(Protocol):"
     ])
-    for name, action in actions.items():
-        async_ = inspect.iscoroutinefunction(action)
+    for name, sub in subs.items():
+        async_ = inspect.iscoroutinefunction(sub)
         template = f"{"async " if async_ else ""}def {name}{{sig}} -> Any: ..."
         
         acc.add("@staticmethod")

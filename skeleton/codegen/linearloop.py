@@ -13,22 +13,22 @@ from . import block as _block
 class LinearLoop(_prot.CodeTemplate):
     __slots__ = (
         'param_name', 'param_use_pauser',
-        'param_super_pause_action', 'param_pause_action',
-        'param_super_resume_action', 'param_resume_action')
+        'param_super_pause', 'param_pause',
+        'param_super_resume', 'param_resume')
 
     def __init__(self):
         self.param_name: str = "liner_loop"
         self.param_use_pauser: bool = True
         
-        self.param_super_pause_action: Optional[str] = None
-        self.param_pause_action: Optional[str] = None
-        self.param_super_resume_action: Optional[str] = None
-        self.param_resume_action: Optional[str] = None
+        self.param_super_pause: Optional[str] = None
+        self.param_pause: Optional[str] = None
+        self.param_super_resume: Optional[str] = None
+        self.param_resume: Optional[str] = None
 
     def _internal_generate_routine_code(
             self,
             func: _block.Block,
-            actions: _prot.Mapping[str, Subroutine],
+            subs: _prot.Mapping[str, Subroutine],
             spa: str,
             pa: str,
             sra: str,
@@ -37,9 +37,6 @@ class LinearLoop(_prot.CodeTemplate):
 
         use_pauser = self.param_use_pauser
 
-        
-
-        
         if self.param_use_pauser:
             func.add(_util.deploy_pause())
         func.add(_util.deploy_signal(_snip.BREAK))
@@ -52,8 +49,8 @@ class LinearLoop(_prot.CodeTemplate):
             while_.blank()
             if_ = while_.add_block(_block.Block("if pauser.current_mode is pauser.RUNNING:"))
             do = if_
-        for name, action in actions.items():
-            do.add(_util.get_call(name, action))
+        for name, sub in subs.items():
+            do.add(_util.get_call(name, sub))
         do.blank()
         if use_pauser:
             while_.add(f"await pauser.consume_resumed_flag(s = {sra}, n = {ra})")
@@ -70,32 +67,32 @@ class LinearLoop(_prot.CodeTemplate):
 
         return func
     
-    def generate_routine_code(self, type_: type, actions: Mapping[str, Subroutine]) -> str:
+    def generate_routine_code(self, type_: type, subs: Mapping[str, Subroutine]) -> str:
         buffer = []
-        _prot.render_accessor_protocols(buffer, actions)
+        _prot.render_accessor_protocols(buffer, subs)
         routine = _block.Block(_util.get_routine_func_definition(type_, self.param_name))
         _prot.add_accessor_cast_process(routine)
-        routine.add(_util.deploy_actions(actions, trial = False))
+        routine.add(_util.deploy_subroutines(subs, trial = False))
         self._internal_generate_routine_code(
             routine,
-            actions,
-            spa = str(self.param_super_pause_action),
-            pa = str(self.param_pause_action),
-            sra = str(self.param_super_resume_action),
-            ra = str(self.param_resume_action)
+            subs,
+            spa = str(self.param_super_pause),
+            pa = str(self.param_pause),
+            sra = str(self.param_super_resume),
+            ra = str(self.param_resume)
         )
         return "\n".join(routine.render(buffer))
     
-    def generate_trial_routine_code(self, name: str, actions: Mapping[str, Subroutine], mapper: SecureNameMapper) -> str:
+    def generate_trial_routine_code(self, name: str, subs: Mapping[str, Subroutine], mapper: SecureNameMapper) -> str:
         buffer = []
         routine = _block.Block(_util.get_routine_func_definition(None, name))
-        routine.add(_util.deploy_actions(actions, trial = True))
+        routine.add(_util.deploy_subroutines(subs, trial = True))
         self._internal_generate_routine_code(
             routine,
-            actions,
-            spa = str(mapper(self.param_super_pause_action)),
-            pa = str(mapper(self.param_pause_action)),
-            sra = str(mapper(self.param_super_resume_action)),
-            ra = str(mapper(self.param_resume_action))
+            subs,
+            spa = str(mapper(self.param_super_pause)),
+            pa = str(mapper(self.param_pause)),
+            sra = str(mapper(self.param_super_resume)),
+            ra = str(mapper(self.param_resume))
         )
         return "\n".join(routine.render(buffer))
