@@ -11,14 +11,18 @@ if TYPE_CHECKING:
     from .log import Log
     from .subroutine import Subroutine, SubroutineFull, CallerAccessor, FunctionAccessor
     from .control import Pauser
-    from .report import ReportReader
+    from .message import Message
     from .record import ProcessRecordFull, ProcessRecordReader
-    from .report import Message
+    from .message import Messenger
 
 T = TypeVar("T")
 T_out = TypeVar("T_out", covariant=True)
 T_in = TypeVar("T_in", contravariant=True)
 
+
+class ReturnValue(Exception):
+    def __init__(self, obj: Any):
+        self.result = obj
 
 @runtime_checkable
 class Signal(Protocol):
@@ -27,11 +31,11 @@ class Signal(Protocol):
         ...
     
     @property
-    def Graceful(_) -> Type[Exception]:
+    def Graceful(_) -> Type[ReturnValue]:
         ...
     
     @property
-    def Resigned(_) -> Type[Exception]:
+    def Resigned(_) -> Type[ReturnValue]:
         ...
 
 @runtime_checkable
@@ -81,7 +85,7 @@ class Context(Protocol, Generic[T_out]):
         ...
 
     @property
-    def routine_message(_) -> Message:
+    def routine_message(_) -> Messenger:
         ...
     
     @property
@@ -116,14 +120,11 @@ def setup_ContextFull(
         routine_process_record: ProcessRecordFull,
         environment: Mapping[str, Any],
         event_message: Mapping[str, Any],
-        routine_message: Message):
+        routine_message: Messenger):
     
     class Redo(Exception):
         pass
 
-    class ReturnValue(Exception):
-        def __init__(self, obj: Any):
-            self.result = obj
 
     class Graceful(ReturnValue):
         pass
@@ -201,7 +202,7 @@ def setup_ContextFull(
                 return event_message
             
             @property
-            def routine_message(_) -> Message:
+            def routine_message(_) -> Messenger:
                 return routine_message
         
             @property

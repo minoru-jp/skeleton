@@ -13,7 +13,9 @@ from . import context as mod_context
 from . import subroutine as mod_sub
 from . import control as mod_pauser
 from . import codegen as mod_codegen
-from . import report as mod_report
+from . import message as mod_report
+from . import result as mod_result
+from . import record as mod_record
 
 if TYPE_CHECKING:
     from .state import UsageStateFull
@@ -22,15 +24,17 @@ if TYPE_CHECKING:
     from .context import ContextFull
     from .subroutine import Subroutine, SubroutineFull
     from .control import PauserFull
-    from .report import ReportFull, ReportReader, Message
+    from .message import MessageFull, Message, Messenger
     from .routine import Routine
+    from .result import ResultFull, ResultReader
+    from .record import ProcessRecordFull
 
     from .codegen import CodeTemplate
 
 
 @runtime_checkable
 class ResultHandler(Protocol):
-    def __call__(self, report: ReportReader) -> bool:
+    def __call__(self, result: ResultReader) -> bool:
         ...
 
 @runtime_checkable
@@ -96,7 +100,7 @@ class SkeletonHandle(Protocol, Generic[mod_context.T]):
         ...
     
     @property
-    def environment(_) -> Message:
+    def environment(_) -> Messenger:
         ...
     
     @staticmethod
@@ -143,58 +147,71 @@ def make_skeleton_handle(mode: Routine[mod_context.T_in] | Type[mod_context.T_in
             self.orig_exception = e
             super().__init__(e)
     
-    def create_event_processor(event: EventHandlerFull, report_full: ReportFull)-> Callable[[str], Awaitable[Any]]:
+    def create_event_processor(event: EventHandlerFull, mess_full: MessageFull, ev_record: ProcessRecordFull)-> Callable[[str], Awaitable[Any]]:
         _event_handlers = event.get_all_handlers()
         
         async def process_event(event: str) -> None:
             event_handler = _event_handlers[event]
-            report_full.set_event_name(event)
-            report_reader = report_full.get_reader()
+            mess_full.set_event_name(event)
+            message = mess_full.get_reader()
             try:
-                tmp = event_handler(report_reader)
+                tmp = event_handler(message)
                 result = await tmp if inspect.isawaitable(tmp) else tmp
             except Exception as e:
                 raise EventHandlerError(event, e)
+            ev_record.set_result(event, result)
             return result
 
         return process_event
 
     async def _engine(
             state: UsageStateFull,
-            log: LogFull,
+            log_full: LogFull,
             event_full: EventHandlerFull,
             routine: Routine,
             context_full: ContextFull,
             pauser_full: PauserFull,
-            report_full: ReportFull,
+            message_full: MessageFull,
+            ev_proc_record: ProcessRecordFull,
+            sub_proc_record: ProcessRecordFull,
+            result_full: ResultFull,
             result_handler: ResultHandler,
             ) -> None:
-        context = None
         try:
-            process_event = create_event_processor(event_full, report_full)
-            log.logger.info(f"[{log.role}] Loop start")
+            process_event = create_event_processor(event_full, message_full, ev_proc_record)
+            log = log_full.get_reader()
+            log.logger.debug(f"[{log.role}] routine start")
             try:
                 await process_event('on_start')
                 context = context_full.setup_context()
                 context_full.load_context_caller_accessors()
                 Redo = context.signal.Redo
-                Graceful = context.signal.Gracefull
+                Graceful = context.signal.Graceful
                 Resigned = context.signal.Resigned
                 while True:
                     try:
                         result = await routine(context)
+                        result_full.set_graceful(result)
                         break
                     except Redo:
                         process_event('on_redo')
                         pauser_full.reset()
                         continue
+                    except Graceful as e:
+                        result_full.set_graceful(e.result)
+                    except Resigned as e:
+                        result_full.set_resigned(e.result)
                     except asyncio.CancelledError:
                         raise
                     except Exception as e:
                         log.logger.exception(f"[{log.role}] routine raises exception")
                         raise RoutineError(e)
+                    finally:
+                        result_full.set_event_process_record(ev_proc_record.get_reader())
+                        result_full.set_routine_process_record(sub_proc_record.get_reader())
+
+                log.logger.debug(f"[{log.role}] routine end")
                 await process_event('on_end')
-                log.logger.info(f"[{log.role}] routine end")
             except asyncio.CancelledError as e:
                 log.logger.info(f"[{log.role}] routine was cancelled")
                 await process_event('on_cancel')
@@ -202,36 +219,37 @@ def make_skeleton_handle(mode: Routine[mod_context.T_in] | Type[mod_context.T_in
                 await process_event('on_close')
 
         except RoutineError as e:
-            report_full.set_error(e)
+            result_full.set_error(e)
         except EventHandlerError as e:
-            report_full.set_error(e)
+            result_full.set_error(e)
         except Exception as e:
             log.logger.critical(f"[{log.role}] Internal error: {e.__class__.__name__}")
-            report_full.set_error(e)
+            result_full.set_error(e)
         finally:
             try:
                 state.transit_state(state.TERMINATED)
             except state.InvalidStateError as e:
                 if state.current_state is not state.TERMINATED:
                     raise
-            if context:
-                report_full.set_last_routine_process(context.prev.process)
-                report_full.set_last_routine_result(context.prev.result)
-            report_reader = report_full.get_reader()
             try:
-                rethrow = result_handler(report_reader)
+                result = result_full.get_reader()
+                rethrow = result_handler(result)
             except Exception as e:
                 raise ResultHandlerError(e)
-            if report_reader.error and rethrow:
-                raise report_reader.error
+            if result.error and rethrow:
+                raise result.error
 
-    def _DEAULT_RESULT_HANDLER(report: ReportReader):
-        log = report.log
+    def _DEAULT_RESULT_HANDLER(result: ResultReader):
+        log = result.log
         log.logger.info(
-            f"[{log.role}] loop ended with \n"
-            f"    last routine process: {report.last_routine_process}\n"
-            f"    last routine result: {report.last_routine_result}\n"
-            f"    error: {report.error}\n"
+            f"[{log.role}] loop result \n"
+            f"    outcome: {result.outcome}"
+            f"    return value: {result.return_value}\n"
+            f"    recorded last event process: {result.event.last_recorded_process}\n"
+            f"    recorded last event result: {result.event.last_recorded_result}\n"
+            f"    recorded last routine process: {result.routine.last_recorded_process}\n"
+            f"    recorded last routine result: {result.routine.last_recorded_result}\n"
+            f"    error: {result.error}\n"
             )
         
         return False # rethrow if exception has raised
@@ -248,25 +266,16 @@ def make_skeleton_handle(mode: Routine[mod_context.T_in] | Type[mod_context.T_in
             routine,
             _context_full,
             _pauser_full,
-            _report_full,
+            _message_full,
+            _ev_proc_record_full,
+            _sub_proc_record_full,
+            _result_full,
             _result_handler,
             )
         )
         
         return task
-    
-    # def _start_engine(routine):
-    #     return _task.start(
-    #         _engine,
-    #         _state_full,
-    #         _log_full, 
-    #         _event_full,
-    #         routine,
-    #         _context_full,
-    #         _pauser_full,
-    #         _report_full,
-    #         _result_handler)
-    
+
 
     _field_type = mode if isinstance(mode, Type) else None
 
@@ -275,17 +284,21 @@ def make_skeleton_handle(mode: Routine[mod_context.T_in] | Type[mod_context.T_in
     _pauser_full = mod_pauser.setup_PauserFull()
     _event_full = mod_event.setup_EventHandlerFull()
     _subroutine_full = mod_sub.setup_SubroutineFull()
-    _report_full = mod_report.setup_ReportFull(_log_full)
+    _ev_proc_record_full = mod_record.setup_ProcessRecordFull()
+    _sub_proc_record_full = mod_record.setup_ProcessRecordFull()
+    _message_full = mod_report.setup_MessageFull(_log_full.get_reader())
+    _result_full = mod_result.setup_ResultFull(_log_full.get_reader())
 
     _result_handler = _DEAULT_RESULT_HANDLER
     
     _context_full = mod_context.setup_ContextFull(
-        _log_full,
+        _log_full.get_reader(),
         _subroutine_full,
         _pauser_full.get_routine_interface(),
-        _report_full.get_environment().mapping,
-        _report_full.get_event_message().mapping,
-        _report_full.get_routine_message(),
+        _sub_proc_record_full,
+        _message_full.get_environment().mapping,
+        _message_full.get_event_messenger().mapping,
+        _message_full.get_routine_messenger(),
     )
 
     class _Interface(SkeletonHandle):
@@ -377,8 +390,8 @@ def make_skeleton_handle(mode: Routine[mod_context.T_in] | Type[mod_context.T_in
             return _pauser_full.super_resume()
         
         @property
-        def environment(_) -> Message:
-            return _report_full.get_environment()
+        def environment(_) -> Messenger:
+            return _message_full.get_environment()
         
         @staticmethod
         def append_subroutine(fn: Subroutine[mod_context.T_in], name: Optional[str] = None) -> None:
