@@ -114,7 +114,7 @@ def setup_ResultFull() -> ResultFull:
     
     _result_reader = _ResultReaderInterface()
 
-    class _Root(ResultFull):
+    class _Interface(ResultFull):
         @staticmethod
         def set_recorded_last_process(name: str) -> None:
             nonlocal _last_recorded_process
@@ -135,5 +135,5 @@ def setup_ResultFull() -> ResultFull:
         def get_result_reader() -> ResultReader:
             return _result_reader
 
-    return _Root()
+    return _Interface()
 
