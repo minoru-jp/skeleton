@@ -27,14 +27,6 @@ class LogFull(Protocol):
     @staticmethod
     def set_logger(logger: logging.Logger) -> None:
         ...
-    
-    @property
-    def role(_) -> str:
-        ...
-    
-    @property
-    def logger(_) -> logging.Logger:
-        ...
 
 
 def setup_LogFull() -> LogFull:
@@ -52,7 +44,7 @@ def setup_LogFull() -> LogFull:
     
     _reader = _Reader()
 
-    class _Imple(LogFull):
+    class _Interface(LogFull):
         @staticmethod
         def get_reader() -> Log:
             return _reader
@@ -66,13 +58,5 @@ def setup_LogFull() -> LogFull:
         def set_logger(logger: logging.Logger) -> None:
             nonlocal _logger
             _logger = logger
-        
-        @property
-        def role(_) -> str:
-            return _reader.role
-        
-        @property
-        def logger(_) -> logging.Logger:
-            return _reader.logger
     
-    return _Imple()
+    return _Interface()
