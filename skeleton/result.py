@@ -53,7 +53,7 @@ class ResultFull(Protocol):
         ...
     
     @staticmethod
-    def get_result_reader() -> ResultReader:
+    def get_reader() -> ResultReader:
         ...
 
 def setup_ResultFull() -> ResultFull:
@@ -72,7 +72,7 @@ def setup_ResultFull() -> ResultFull:
     _event_process_record = NO_RECORDED_SENTINEL
     _routine_process_record = NO_RECORDED_SENTINEL
 
-    class _ResultReaderInterface(ResultReader):
+    class _Reader(ResultReader):
         @property
         def NO_RESULT(_) -> object:
             return _NO_RESULT
@@ -98,7 +98,7 @@ def setup_ResultFull() -> ResultFull:
             return _routine_process_record
 
     
-    _result_reader = _ResultReaderInterface()
+    _reader = _Reader()
 
     class _Interface(ResultFull):
         @staticmethod
@@ -129,8 +129,8 @@ def setup_ResultFull() -> ResultFull:
             _error = e
         
         @staticmethod
-        def get_result_reader() -> ResultReader:
-            return _result_reader
+        def get_reader() -> ResultReader:
+            return _reader
 
     return _Interface()
 
