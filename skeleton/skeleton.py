@@ -187,6 +187,8 @@ def make_skeleton_handle(mode: Routine[mod_context.T_in] | Type[mod_context.T_in
                         process_event('on_continue')
                         pauser_full.reset()
                         continue
+                    except asyncio.CancelledError:
+                        raise
                     except Exception as e:
                         log.logger.exception(f"[{log.role}] routine raises exception")
                         raise RoutineError(e)
