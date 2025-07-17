@@ -9,7 +9,7 @@ from .context import T_in
 
 if TYPE_CHECKING:
     from .context import Context
-    from .record import ProcessRecordReader
+    from .record import ProcessRecordFull
 
 CAST = TypeVar("CAST")
 
@@ -37,7 +37,7 @@ SecureNameMapper = Callable[[Optional[str]], Optional[str]]
 @runtime_checkable
 class SubroutineFull(Protocol):
     @staticmethod
-    def get_accessor(context: Context, step: ProcessRecordReader) -> CallerAccessor:
+    def get_accessor(context: Context, record: ProcessRecordFull) -> CallerAccessor:
         ...
     
     @staticmethod
@@ -71,9 +71,9 @@ class SubroutineFull(Protocol):
 
 def setup_SubroutineFull() -> SubroutineFull:
 
-    def _get_wrapper(call_name: str, fn: Subroutine, context: Context, step: ProcessRecordReader):
+    def _get_wrapper(call_name: str, fn: Subroutine, context: Context, record: ProcessRecordFull):
         async_ = inspect.iscoroutinefunction(fn)
-        set_result = step.set_result
+        set_result = record.set_result
         if async_:
             async def calla():
                 set_result(call_name, await fn(context))
@@ -104,12 +104,12 @@ def setup_SubroutineFull() -> SubroutineFull:
     class _Imple(SubroutineFull):
         __slots__ = ()
         @staticmethod
-        def get_accessor(context: Context, step: ProcessRecordReader) -> CallerAccessor:
+        def get_accessor(context: Context, record: ProcessRecordFull) -> CallerAccessor:
 
             _wrapped_subroutines = {} # call name: wrapped subroutine
 
             for call_name, subroutine in _subroutine_mapping.items():
-                _wrapped_subroutines[call_name] = _get_wrapper(call_name, subroutine, context, step)
+                _wrapped_subroutines[call_name] = _get_wrapper(call_name, subroutine, context, record)
             
             ns: dict[str, Callable] = {k: staticmethod(v) for k, v in _wrapped_subroutines.items()}
             ns["__call__"] = _cast
