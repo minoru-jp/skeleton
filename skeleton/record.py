@@ -4,6 +4,11 @@ from __future__ import annotations
 from typing import Any, Protocol, runtime_checkable
 
 
+class _NoRecoded:
+    __slots__ = ()
+    def __repr__(self):
+        return "no recoded"
+
 class ProcessRecordReader(Protocol):
     @property
     def NO_RECORDED(_) -> object:
@@ -16,6 +21,28 @@ class ProcessRecordReader(Protocol):
     @property
     def last_recorded_result(_) -> Any:
         ...
+
+def _setup_sentinel() -> ProcessRecordReader:
+
+    _NO_RECORDED = _NoRecoded()
+    
+    class _Interface(ProcessRecordReader):
+        @property
+        def NO_RECORDED(_) -> object:
+            return _NO_RECORDED
+
+        @property
+        def last_recorded_process(_) -> str:
+            return str(_NO_RECORDED)
+        
+        @property
+        def last_recorded_result(_) -> Any:
+            return _NO_RECORDED
+    
+    return _Interface()
+
+
+NO_RECORDED_SENTINEL = _setup_sentinel()
 
 
 class ProcessRecordFull(Protocol):
@@ -36,12 +63,7 @@ class ProcessRecordFull(Protocol):
         ...
 
 def setup_ProcessRecordFull() -> ProcessRecordFull:
-    
-    class _NoRecoded:
-        __slots__ = ()
-        def __repr__(self):
-            return "no recoded"
-        
+
     _NO_RECORDED = _NoRecoded()
 
     _last_recorded_process = str(_NO_RECORDED)
@@ -87,4 +109,7 @@ def setup_ProcessRecordFull() -> ProcessRecordFull:
             _last_recorded_result = _NO_RECORDED
 
     return _Interface()
+
+
+
 
