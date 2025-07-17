@@ -1,4 +1,5 @@
 
+from __future__ import annotations
 
 from typing import Any, Protocol, runtime_checkable
 
@@ -24,6 +25,10 @@ class ProcessRecordFull(Protocol):
     
     @staticmethod
     def set_result(proc_name: str, result: Any) -> None:
+        ...
+    
+    @staticmethod
+    def get_snapshot() -> ProcessRecordFull:
         ...
 
     @staticmethod
@@ -68,6 +73,12 @@ def setup_ProcessRecordFull() -> ProcessRecordFull:
             nonlocal _last_recorded_process, _last_recorded_result
             _last_recorded_process = proc_name
             _last_recorded_result = result
+        
+        @staticmethod
+        def get_snapshot() -> ProcessRecordFull:
+            new = setup_ProcessRecordFull()
+            new.set_result(_last_recorded_process, _last_recorded_result)
+            return new
 
         @staticmethod
         def cleanup() -> None:
