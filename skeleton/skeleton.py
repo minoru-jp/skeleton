@@ -11,10 +11,9 @@ from . import log as mod_log
 from . import event as mod_event
 from . import context as mod_context
 from . import subroutine as mod_sub
-from . import pauser as mod_pauser
+from . import control as mod_pauser
 from . import codegen as mod_codegen
 from . import report as mod_report
-from . import task as mod_task
 
 if TYPE_CHECKING:
     from .state import UsageStateFull
@@ -22,7 +21,7 @@ if TYPE_CHECKING:
     from .event import EventHandlerFull, EventHandler
     from .context import ContextFull
     from .subroutine import Subroutine, SubroutineFull
-    from .pauser import PauserFull
+    from .control import PauserFull
     from .report import ReportFull, ReportReader, Message
     from .routine import Routine
 
@@ -178,13 +177,15 @@ def make_skeleton_handle(mode: Routine[mod_context.T_in] | Type[mod_context.T_in
                 await process_event('on_start')
                 context = context_full.setup_context()
                 context_full.load_context_caller_accessors()
-                Continue = context.signal.Continue
+                Redo = context.signal.Redo
+                Graceful = context.signal.Gracefull
+                Resigned = context.signal.Resigned
                 while True:
                     try:
-                        await routine(context)
+                        result = await routine(context)
                         break
-                    except Continue:
-                        process_event('on_continue')
+                    except Redo:
+                        process_event('on_redo')
                         pauser_full.reset()
                         continue
                     except asyncio.CancelledError:
@@ -235,30 +236,45 @@ def make_skeleton_handle(mode: Routine[mod_context.T_in] | Type[mod_context.T_in
         
         return False # rethrow if exception has raised
     
-    def _start_engine(routine):
-        return _task.start(
-            _engine,
+    def _start_engine(routine) -> asyncio.Task:
+
+        if not isinstance(mode, Routine):
+            raise RuntimeError("Routine is missing")
+        
+        task = asyncio.create_task(_engine(
             _state_full,
-            _log_full, 
+            _log_full,
             _event_full,
             routine,
             _context_full,
             _pauser_full,
             _report_full,
-            _result_handler)
+            _result_handler,
+            )
+        )
+        
+        return task
+    
+    # def _start_engine(routine):
+    #     return _task.start(
+    #         _engine,
+    #         _state_full,
+    #         _log_full, 
+    #         _event_full,
+    #         routine,
+    #         _context_full,
+    #         _pauser_full,
+    #         _report_full,
+    #         _result_handler)
     
 
     _field_type = mode if isinstance(mode, Type) else None
 
     _state_full = mod_state.setup_UsageStateFull()
-
     _log_full = mod_log.setup_LogFull()
-
     _pauser_full = mod_pauser.setup_PauserFull()
-    
     _event_full = mod_event.setup_EventHandlerFull()
     _subroutine_full = mod_sub.setup_SubroutineFull()
-    
     _report_full = mod_report.setup_ReportFull(_log_full)
 
     _result_handler = _DEAULT_RESULT_HANDLER
@@ -271,9 +287,6 @@ def make_skeleton_handle(mode: Routine[mod_context.T_in] | Type[mod_context.T_in
         _report_full.get_event_message().mapping,
         _report_full.get_routine_message(),
     )
-
-    _task = mod_task.setup_TaskControl(_state_full)
-    
 
     class _Interface(SkeletonHandle):
         __slots__ = ()
@@ -410,8 +423,8 @@ def make_skeleton_handle(mode: Routine[mod_context.T_in] | Type[mod_context.T_in
             )
             dst = {}
             exec(code, {}, dst)
-            routine = dst[ROUTINE_NAME]
-            return _start_engine(routine)
+            trial_routine = dst[ROUTINE_NAME]
+            return _start_engine(trial_routine)
 
     return _Interface()
 

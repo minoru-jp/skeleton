@@ -1,4 +1,5 @@
 
+import asyncio
 from typing import Any, Generic, Protocol, TypeVar
 from skeleton import make_skeleton_handle
 
@@ -6,28 +7,26 @@ from skeleton.codegen.linearloop import LinearLoop
 from skeleton.context import Context
 from skeleton.skeleton import SkeletonHandle
 
-code_template = LinearLoop()
-code_template.param_name =  'test_code_generation'
-code_template.param_use_pauser = False
 
-def piyo(context: Context[str]):
-    pass
+async def main():
+    async def routine(context: Context[Any]):
+        print("hello world.")
+        context.caller.subroutine()
+        print(f"{context.prev.process} result: {context.prev.result}")
 
-async def puyo(context: Context[str]):
-    pass
+    def subroutine(context: Context[Any]):
+        return "hello small world."
 
-class Acc(Protocol):
-    def sburoutine1(self, context: Context[str]) -> Any: ...
-    def subroutine2(self, context: Context[str]) -> Any: ...
+    handle = make_skeleton_handle(routine)
 
-def circuit(context: Context[str]):
-    subroutines = context.caller(Acc)
-    
+    handle.set_role("exsample")
 
-handle = make_skeleton_handle(str)
+    # 各EventHandlerはデフォルトでイベント名をロギングする
 
-handle.append_subroutine(piyo)
-handle.append_subroutine(puyo) 
+    handle.append_subroutine(subroutine)
 
-print(handle.code_on_trial(code_template))
+    task = handle.start()
 
+
+if __name__ == "__main__":
+    asyncio.run(main())
