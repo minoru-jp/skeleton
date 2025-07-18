@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import inspect
 from types import CoroutineType, MappingProxyType
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Literal, Mapping, Protocol, Union, runtime_checkable
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Literal, Mapping, Optional, Protocol, Union, runtime_checkable
 
 if TYPE_CHECKING:
     from .record import ProcessRecordFull
@@ -122,8 +122,9 @@ def setup_EventHandlerFull(message_full: MessageFull, record_full: ProcessRecord
                     return result
                 return sync_processor
     
-    def setup_EventProcessor(dedicated: tuple[str]) -> EventProcessor:
+    def setup_EventProcessor(dedicated: Optional[tuple[str]]) -> EventProcessor:
         _processor_mapping: dict[str, Callable[[], Any] | Callable[[], Awaitable[Any]]] = {}
+        dedicated = dedicated if dedicated is not None else tuple()
         for k in _event_handler_mapping.keys():
             _processor_mapping[k] = _get_processor(
                 k, 'dedicated' if k in dedicated else 'universal')
@@ -153,9 +154,10 @@ def setup_EventHandlerFull(message_full: MessageFull, record_full: ProcessRecord
 
     class _Interface(EventHandlerFull):
         @staticmethod
-        def setup_event_processor(dedicated: tuple[str]) -> EventProcessor:
-            if not all(k in _ALL_EVENTS for k in dedicated):
-                raise ValueError(f"Undefined event name found")
+        def setup_event_processor(dedicated: Optional[tuple[str]] = None) -> EventProcessor:
+            if dedicated:
+                if not all(k in _ALL_EVENTS for k in dedicated):
+                    raise ValueError(f"Undefined event name found")
             return setup_EventProcessor(dedicated)
         
         @staticmethod
