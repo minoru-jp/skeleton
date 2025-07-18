@@ -46,7 +46,7 @@ class Message(Protocol):
 @runtime_checkable
 class MessageFull(Protocol):
     @staticmethod
-    def get_message(event_name: str) -> Message:
+    def create_message_for(event_name: str) -> Message:
         ...
 
     @staticmethod
@@ -180,7 +180,7 @@ def setup_MessageFull(log: log.Log) -> MessageFull:
     class _Interface(MessageFull):
         __slots__ = ()
         @staticmethod
-        def get_message(event_name: str) -> Message:
+        def create_message_for(event_name: str) -> Message:
             return setup_Message(event_name)
 
         @staticmethod
