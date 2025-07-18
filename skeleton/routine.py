@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Generic, Protocol, runtime_checkable
 
+from .context import T
+
 if TYPE_CHECKING:
     from .context import Context, T
 

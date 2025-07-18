@@ -20,9 +20,9 @@ def boot_sync_routine_with_thread(
         on_end_processor: Callable[[], bool],
     ):
     def worker():
-        role = log.role
-        log.logger.debug(f"[{role}] routine start")
         try:
+            role = log.role
+            log.logger.debug(f"[{role}] routine start")
             while True:
                 try:
                     result = routine(context)
@@ -48,9 +48,9 @@ def boot_sync_routine_with_thread(
         except Exception as e:
             result_full.set_error(e)
     
-        thread = threading.Thread(target=worker, daemon=True)
-        thread.start()
-        thread.join()
+    thread = threading.Thread(target=worker, daemon=True)
+    thread.start()
+    thread.join()
 
 async def boot_async_routine(
         routine,

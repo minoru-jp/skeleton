@@ -97,7 +97,7 @@ class SkeletonBaseHandle(Protocol, Generic[mod_context.T]): # type: ignore
         ...
 
 @runtime_checkable
-class _InnerSkeletonHandle(Protocol, Generic[mod_context.T], SkeletonBaseHandle): # type: ignore
+class _InnerSkeletonHandle(SkeletonBaseHandle, Protocol, Generic[mod_context.T]): 
     @staticmethod
     def set_routine(routine: Routine[mod_context.T]) -> None:
         ...
@@ -116,13 +116,13 @@ class _InnerSkeletonHandle(Protocol, Generic[mod_context.T], SkeletonBaseHandle)
 
 
 @runtime_checkable
-class SkeletonHandle(Protocol, Generic[mod_context.T], SkeletonBaseHandle): # type: ignore
+class SkeletonHandle(SkeletonBaseHandle, Protocol, Generic[mod_context.T]):
     @staticmethod
     def start():
         ...
 
 @runtime_checkable
-class TrialSkeletonHandle(Protocol, Generic[mod_context.T]): # type: ignore
+class TrialSkeletonHandle(SkeletonBaseHandle, Protocol, Generic[mod_context.T]):
     @staticmethod
     def trial(ct: CodeTemplate):
         ...
@@ -161,7 +161,6 @@ def _make_inner_skeleton_handle(type_hint: Routine[mod_context.T] | Type[mod_con
             
             context = context_full.setup_context()
             context_full.load_context_caller_accessors()
-
             if async_routine:
                 await mod_engine.boot_async_routine(
                     routine,
@@ -210,7 +209,7 @@ def _make_inner_skeleton_handle(type_hint: Routine[mod_context.T] | Type[mod_con
     
     def _start_engine(routine) -> asyncio.Task:
 
-        if not isinstance(routine, Routine):
+        if not isinstance(routine, mod_routine.Routine):
             raise RuntimeError("Routine is missing")
         
         task = asyncio.create_task(
@@ -316,7 +315,7 @@ def _make_inner_skeleton_handle(type_hint: Routine[mod_context.T] | Type[mod_con
         @staticmethod
         def start() -> asyncio.Task:
             _state_full.transit_state(_state_full.ACTIVE)
-            if not isinstance(_routine, Routine):
+            if not isinstance(_routine, mod_routine.Routine):
                 raise RuntimeError("Routine is missing")
             return _start_engine(_routine)
         
@@ -383,7 +382,7 @@ def _make_inner_skeleton_handle(type_hint: Routine[mod_context.T] | Type[mod_con
                 _routine = routine
             _state_full.maintain_state(
                 _state_full.LOAD,
-                _event_full.set_event_handler, setter)
+                setter)
         
         @staticmethod
         def set_field_type(field_type: Type[mod_context.T]):
@@ -391,7 +390,7 @@ def _make_inner_skeleton_handle(type_hint: Routine[mod_context.T] | Type[mod_con
                 nonlocal _field_type
             _state_full.maintain_state(
                 _state_full.LOAD,
-                _event_full.set_event_handler, setter)
+                setter)
 
     return _Interface()
 

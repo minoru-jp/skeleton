@@ -10,7 +10,7 @@ from .record import ProcessRecordReader, NO_RECORDED_SENTINEL
 def DEAULT_RESULT_HANDLER(result: ResultReader):
     log = result.log
     log.logger.info(
-        f"[{log.role}] loop result \n"
+        f"[{log.role}] routine result \n"
         f"    outcome: {result.outcome}\n"
         f"    return value: {result.return_value}\n"
         f"    recorded last event process: {result.event.last_recorded_process}\n"
