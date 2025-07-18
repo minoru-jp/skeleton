@@ -50,7 +50,7 @@ class Pauser(RunningObserver, Protocol):
         ...
 
 
-class DriverRequest(Protocol):
+class ControlRequest(Protocol):
     @staticmethod
     def stop() -> None:
         ...
@@ -66,7 +66,7 @@ class DriverRequest(Protocol):
 
 class ControlFull(Protocol):
     @staticmethod
-    def get_request() -> DriverRequest:
+    def get_control_request() -> ControlRequest:
         ...
 
     @staticmethod
@@ -129,7 +129,7 @@ def setup_ControlFull() -> ControlFull:
         def current_mode(_):
             return _mode
     
-    _observer_interface = _ObserverInterface()
+    _observer = _ObserverInterface()
 
     def _resume():
         nonlocal _resumed_flag, _mode, _super_pause_active, _super_resume_active
@@ -140,7 +140,7 @@ def setup_ControlFull() -> ControlFull:
         _pause_ids.clear()
         _event.set()
     
-    class _RoutineInterface(Pauser, type(_observer_interface)):
+    class _RoutineInterface(Pauser, type(_observer)):
         __slots__ = ()
         @staticmethod
         async def consume_on_pause_requested(s: Optional[SubroutineCaller] = None, n: Optional[SubroutineCaller] = None) -> None:
@@ -187,9 +187,9 @@ def setup_ControlFull() -> ControlFull:
         async def wait_resume():
             await _event.wait()
     
-    _routine_interface = _RoutineInterface()
+    _pauser = _RoutineInterface()
 
-    class _RequestInterface(DriverRequest):
+    class _RequestInterface(ControlRequest):
         @staticmethod
         def stop() -> None:
             nonlocal _stop
@@ -205,21 +205,21 @@ def setup_ControlFull() -> ControlFull:
         def resume() -> None:
             _resume()
     
-    _request_interface = _RequestInterface()
+    _control_request = _RequestInterface()
 
 
     class _Interface(ControlFull):
         @staticmethod
-        def get_request() -> DriverRequest:
-            return _request_interface
+        def get_control_request() -> ControlRequest:
+            return _control_request
 
         @staticmethod
         def get_pauser() -> Pauser:
-            return _routine_interface
+            return _pauser
     
         @staticmethod
         def get_observer() -> RunningObserver:
-            return _observer_interface
+            return _observer
         
         @staticmethod
         def stopped() -> None:
