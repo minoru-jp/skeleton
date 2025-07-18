@@ -57,7 +57,7 @@ class EventProcessor(Protocol):
         ...
 
 
-class EventHandlerFull(Protocol):
+class EventFull(Protocol):
     @staticmethod
     def setup_event_processor(dedicated: tuple[str]) -> EventProcessor:
         ...
@@ -70,7 +70,7 @@ class EventHandlerFull(Protocol):
     def cleanup() -> None:
         ...
 
-def setup_EventHandlerFull(message_full: MessageFull, record_full: ProcessRecordFull) -> EventHandlerFull:
+def setup_EventHandlerFull(message_full: MessageFull, record_full: ProcessRecordFull) -> EventFull:
 
     _ALL_EVENTS = [
         'on_start', 'on_redo', 'on_end', 'on_cancel', 'on_close'
@@ -152,7 +152,7 @@ def setup_EventHandlerFull(message_full: MessageFull, record_full: ProcessRecord
         
         return _EventProcessor()
 
-    class _Interface(EventHandlerFull):
+    class _Interface(EventFull):
         @staticmethod
         def setup_event_processor(dedicated: Optional[tuple[str]] = None) -> EventProcessor:
             if dedicated:
