@@ -34,11 +34,8 @@ if TYPE_CHECKING:
     from .engine import ExceptionMarker
 
 
-
-
-
 @runtime_checkable
-class SkeletonHandle(Protocol, Generic[mod_context.T]): # type: ignore
+class SkeletonBaseHandle(Protocol, Generic[mod_context.T]): # type: ignore
     @property
     def log(_) -> Log:
         ...
@@ -71,12 +68,8 @@ class SkeletonHandle(Protocol, Generic[mod_context.T]): # type: ignore
     def set_on_close(handler: EventHandler) -> None:
         ...
     
-    @staticmethod
-    def start():
-        ...
-    
     @property
-    def request(_) -> None:
+    def request(_) -> mod_control.ControlRequest:
         ...
     
     @property
@@ -94,7 +87,7 @@ class SkeletonHandle(Protocol, Generic[mod_context.T]): # type: ignore
     @property
     def running_observer(_) -> mod_control.RunningObserver:
         ...
-    
+
     @staticmethod
     def code(ct: CodeTemplate) -> str:
         ...
@@ -102,14 +95,40 @@ class SkeletonHandle(Protocol, Generic[mod_context.T]): # type: ignore
     @staticmethod
     def code_on_trial(ct: CodeTemplate) -> str:
         ...
+
+@runtime_checkable
+class _InnerSkeletonHandle(Protocol, Generic[mod_context.T], SkeletonBaseHandle): # type: ignore
+    @staticmethod
+    def set_routine(routine: Routine[mod_context.T]) -> None:
+        ...
+
+    @staticmethod
+    def set_field_type(field_type: Type[mod_context.T]) -> None:
+        ...
+
+    @staticmethod
+    def start() -> asyncio.Task:
+        ...
     
+    @staticmethod
+    def trial(ct: mod_codegen.CodeTemplate) -> asyncio.Task:
+        ...
+
+
+@runtime_checkable
+class SkeletonHandle(Protocol, Generic[mod_context.T], SkeletonBaseHandle): # type: ignore
+    @staticmethod
+    def start():
+        ...
+
+@runtime_checkable
+class TrialSkeletonHandle(Protocol, Generic[mod_context.T]): # type: ignore
     @staticmethod
     def trial(ct: CodeTemplate):
         ...
-    
 
 
-def make_skeleton_handle(mode: Routine[mod_context.T] | Type[mod_context.T]) -> SkeletonHandle[mod_context.T]:
+def _make_inner_skeleton_handle(type_hint: Routine[mod_context.T] | Type[mod_context.T]) -> _InnerSkeletonHandle[mod_context.T]:
 
     async def _engine(
             state: UsageStateFull,
@@ -191,7 +210,7 @@ def make_skeleton_handle(mode: Routine[mod_context.T] | Type[mod_context.T]) -> 
     
     def _start_engine(routine) -> asyncio.Task:
 
-        if not isinstance(mode, Routine):
+        if not isinstance(routine, Routine):
             raise RuntimeError("Routine is missing")
         
         task = asyncio.create_task(
@@ -211,8 +230,8 @@ def make_skeleton_handle(mode: Routine[mod_context.T] | Type[mod_context.T]) -> 
         
         return task
 
-
-    _field_type = mode if isinstance(mode, Type) else None
+    _routine = None
+    _field_type = None
 
     _state_full = mod_state.setup_UsageStateFull()
     _log_full = mod_log.setup_LogFull()
@@ -235,7 +254,7 @@ def make_skeleton_handle(mode: Routine[mod_context.T] | Type[mod_context.T]) -> 
         _message_full.get_routine_messenger(),
     )
 
-    class _Interface(SkeletonHandle):
+    class _Interface(_InnerSkeletonHandle):
         __slots__ = ()
 
         @property
@@ -295,11 +314,11 @@ def make_skeleton_handle(mode: Routine[mod_context.T] | Type[mod_context.T]) -> 
                 _event_full.set_event_handler, 'on_close', handler)
         
         @staticmethod
-        def start():
+        def start() -> asyncio.Task:
             _state_full.transit_state(_state_full.ACTIVE)
-            if not isinstance(mode, Routine):
+            if not isinstance(_routine, Routine):
                 raise RuntimeError("Routine is missing")
-            return _start_engine(mode)
+            return _start_engine(_routine)
         
         @property
         def request(_) -> mod_control.ControlRequest:
@@ -356,6 +375,185 @@ def make_skeleton_handle(mode: Routine[mod_context.T] | Type[mod_context.T]) -> 
             # TODO:もしtrial_routineが同期関数なら、on_redoとon_endをチェック
             #これらが非同期関数なら例外
             return _start_engine(trial_routine)
+        
+        @staticmethod
+        def set_routine(routine: Routine[mod_context.T]) -> None:
+            def setter():
+                nonlocal _routine
+                _routine = routine
+            _state_full.maintain_state(
+                _state_full.LOAD,
+                _event_full.set_event_handler, setter)
+        
+        @staticmethod
+        def set_field_type(field_type: Type[mod_context.T]):
+            def setter():
+                nonlocal _field_type
+            _state_full.maintain_state(
+                _state_full.LOAD,
+                _event_full.set_event_handler, setter)
 
     return _Interface()
 
+
+def make_skeleton_handle(routine: Routine[mod_context.T]) -> SkeletonHandle:
+
+    base_handle = _make_inner_skeleton_handle(routine)
+
+    base_handle.set_routine(routine)
+
+    class _Interface(SkeletonHandle):
+        __slots__ = ()
+        
+        @property
+        def log(_) -> Log:
+            return base_handle.log
+        
+        @staticmethod
+        def set_role(role: str) -> None:
+            base_handle.set_role(role)
+        
+        @staticmethod
+        def set_logger(logger: logging.Logger) -> None:
+            base_handle.set_logger(logger)
+
+        @staticmethod
+        def set_field(field: mod_context.T) -> None:
+            base_handle.set_field(field)
+        
+        @staticmethod
+        def set_on_start(handler: EventHandler) -> None:
+            base_handle.set_on_start(handler)
+            
+        @staticmethod
+        def set_on_redo(handler: EventHandler) -> None:
+            base_handle.set_on_redo(handler)
+
+        @staticmethod
+        def set_on_end(handler: EventHandler) -> None:
+            base_handle.set_on_end(handler)
+
+        @staticmethod
+        def set_on_cancel(handler: EventHandler) -> None:
+            base_handle.set_on_cancel(handler)
+
+        @staticmethod
+        def set_on_close(handler: EventHandler) -> None:
+            base_handle.set_on_cancel(handler)
+        
+        @staticmethod
+        def start():
+            return base_handle.start()
+        
+        @property
+        def request(_) -> mod_control.ControlRequest:
+            return base_handle.request
+        
+        @property
+        def environment(_) -> Messenger:
+            return base_handle.environment
+        
+        @staticmethod
+        def append_subroutine(fn: Subroutine[mod_context.T], name: Optional[str] = None) -> None:
+            return base_handle.append_subroutine(fn, name)
+        
+        @property
+        def state_observer(_) -> mod_state.UsageStateObserver:
+            return base_handle.state_observer
+        
+        @property
+        def running_observer(_) -> mod_control.RunningObserver:
+            return base_handle.running_observer
+
+        @staticmethod
+        def code(ct: mod_codegen.CodeTemplate):
+            return base_handle.code(ct)
+        
+        @staticmethod
+        def code_on_trial(ct: mod_codegen.CodeTemplate):
+            return base_handle.code_on_trial(ct)
+        
+
+    return _Interface()
+
+
+
+def make_trial_skeleton_handle(field_type: Type[mod_context.T]) -> TrialSkeletonHandle:
+
+    base_handle = _make_inner_skeleton_handle(field_type)
+
+    base_handle.set_field_type(field_type)
+
+    class _Interface(TrialSkeletonHandle):
+        __slots__ = ()
+        
+        @property
+        def log(_) -> Log:
+            return base_handle.log
+        
+        @staticmethod
+        def set_role(role: str) -> None:
+            base_handle.set_role(role)
+        
+        @staticmethod
+        def set_logger(logger: logging.Logger) -> None:
+            base_handle.set_logger(logger)
+
+        @staticmethod
+        def set_field(field: mod_context.T) -> None:
+            base_handle.set_field(field)
+        
+        @staticmethod
+        def set_on_start(handler: EventHandler) -> None:
+            base_handle.set_on_start(handler)
+            
+        @staticmethod
+        def set_on_redo(handler: EventHandler) -> None:
+            base_handle.set_on_redo(handler)
+
+        @staticmethod
+        def set_on_end(handler: EventHandler) -> None:
+            base_handle.set_on_end(handler)
+
+        @staticmethod
+        def set_on_cancel(handler: EventHandler) -> None:
+            base_handle.set_on_cancel(handler)
+
+        @staticmethod
+        def set_on_close(handler: EventHandler) -> None:
+            base_handle.set_on_cancel(handler)
+        
+        @property
+        def request(_) -> mod_control.ControlRequest:
+            return base_handle.request
+        
+        @property
+        def environment(_) -> Messenger:
+            return base_handle.environment
+        
+        @staticmethod
+        def append_subroutine(fn: Subroutine[mod_context.T], name: Optional[str] = None) -> None:
+            return base_handle.append_subroutine(fn, name)
+        
+        @property
+        def state_observer(_) -> mod_state.UsageStateObserver:
+            return base_handle.state_observer
+        
+        @property
+        def running_observer(_) -> mod_control.RunningObserver:
+            return base_handle.running_observer
+
+        @staticmethod
+        def code(ct: mod_codegen.CodeTemplate):
+            return base_handle.code(ct)
+        
+        @staticmethod
+        def code_on_trial(ct: mod_codegen.CodeTemplate):
+            return base_handle.code_on_trial(ct)
+        
+        @staticmethod
+        def trial(ct: mod_codegen.CodeTemplate):
+            return base_handle.trial(ct)
+        
+
+    return _Interface()
