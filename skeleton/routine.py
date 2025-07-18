@@ -8,4 +8,3 @@ from .context import Context, T_in
 class Routine(Protocol, Generic[T_in]):
     async def __call__(self, context: Context[T_in]):
         ...
-
