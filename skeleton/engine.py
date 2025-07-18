@@ -8,7 +8,7 @@ if TYPE_CHECKING:
     from .log import Log
     from .context import Context
     from .result import ResultFull
-    from .pauser import PauserFull
+    from .control import ControlFull
 
 def boot_sync_routine_with_thread(
         routine,
@@ -58,7 +58,7 @@ async def boot_async_routine(
         log: Log,
         context: Context,
         result_full: ResultFull,
-        pauser_full: PauserFull,
+        control_full: ControlFull,
         on_redo_processor: Callable[[], Awaitable[bool]],
         on_end_processor: Callable[[], Awaitable[bool]],
     ):
@@ -76,7 +76,7 @@ async def boot_async_routine(
                 break
             except context.signal.Redo:
                 await on_redo_processor()
-                pauser_full.reset()
+                control_full.reset()
                 log.logger.debug(f"[{role}] routine redo")
                 continue
             except context.signal.Graceful as e:

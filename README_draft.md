@@ -113,6 +113,22 @@ await task
 
 ```
 
-Routine の動作について、確実に保証されるのは .start() による開始のみです。
-停止・一時停止・再開が想定通りに動作するかどうかは Routine の実装に依存します。
-そのため、これらのインターフェースは .request 内にまとめられています。
+Routine の動作について:
+  確実に保証されるのは .start() による開始のみです。
+  停止・一時停止・再開が想定通りに動作するかどうかは Routine の実装に依存します。
+  そのため、これらのインターフェースは .request 内にまとめられています。
+
+
+Routineの終了状態について:
+  正常終了:  
+  - Routine関数がreturnされた
+　- Routine内部からGracefulが投げられた（Gracefulは停止要求に応答する形でRoutineを停止するためのシグナル）
+
+  不完全終了:
+  - Routine内部からResignedが投げられた
+
+  失敗:
+  - Routineからシグナル以外の例外が送出された
+
+  終了状態はresult.outcomeに格納されています。失敗ではない場合、戻り値が result.return_value に格納されています。
+  失敗の場合は .return_value はresult.NO_RESULTのままで、例外オブジェクトはresult.errorから参照できます

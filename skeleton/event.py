@@ -59,7 +59,7 @@ class EventProcessor(Protocol):
 
 class EventFull(Protocol):
     @staticmethod
-    def setup_event_processor(dedicated: tuple[str]) -> EventProcessor:
+    def setup_event_processor(dedicated: Optional[tuple[str, ...]] = None) -> EventProcessor:
         ...
     
     @staticmethod

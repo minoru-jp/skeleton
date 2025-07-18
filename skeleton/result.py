@@ -58,6 +58,10 @@ class ResultReader(Protocol):
 
 class ResultFull(Protocol):
     @staticmethod
+    def set_result_handler(fn: ResultHandler) -> None:
+        ...
+
+    @staticmethod
     def set_event_process_record(record: ProcessRecordReader) -> None:
         ...
     
@@ -80,6 +84,10 @@ class ResultFull(Protocol):
     @staticmethod
     def get_reader() -> ResultReader:
         ...
+    
+    @staticmethod
+    def call_result_handler() -> bool:
+        ...
 
 def setup_ResultFull(log: Log) -> ResultFull:
 
@@ -96,6 +104,8 @@ def setup_ResultFull(log: Log) -> ResultFull:
 
     _event_process_record = NO_RECORDED_SENTINEL
     _routine_process_record = NO_RECORDED_SENTINEL
+
+    _result_handler = DEAULT_RESULT_HANDLER
 
     class _Reader(ResultReader):
         @property
@@ -131,6 +141,11 @@ def setup_ResultFull(log: Log) -> ResultFull:
 
     class _Interface(ResultFull):
         @staticmethod
+        def set_result_handler(fn: ResultHandler) -> None:
+            nonlocal _result_handler
+            _result_handler = fn
+        
+        @staticmethod
         def set_event_process_record(record: ProcessRecordReader) -> None:
             nonlocal _event_process_record
             _event_process_record = record.get_snapshot()
@@ -161,6 +176,10 @@ def setup_ResultFull(log: Log) -> ResultFull:
         @staticmethod
         def get_reader() -> ResultReader:
             return _reader
+        
+        @staticmethod
+        def call_result_handler() -> bool:
+            return _result_handler(_reader)
 
     return _Interface()
 

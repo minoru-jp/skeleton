@@ -15,9 +15,9 @@ if TYPE_CHECKING:
     from .record import ProcessRecordFull, ProcessRecordReader
     from .message import Messenger
 
-T = TypeVar("T")
+T_im = TypeVar("T_im")
 T_out = TypeVar("T_out", covariant=True)
-T_in = TypeVar("T_in", contravariant=True)
+T = TypeVar("T", contravariant=True)
 
 
 class ReturnValue(Exception):
@@ -95,9 +95,9 @@ class Context(Protocol, Generic[T_out]):
     
 
 @runtime_checkable
-class ContextFull(Protocol, Generic[T]):
+class ContextFull(Protocol, Generic[T_im]):
     @staticmethod
-    def setup_context() -> Context[T]:
+    def setup_context() -> Context[T_im]:
         ...
     
     @staticmethod
@@ -105,7 +105,7 @@ class ContextFull(Protocol, Generic[T]):
         ...
     
     @staticmethod
-    def set_field(field: T) -> None:
+    def set_field(field: T_im) -> None:
         ...
 
     @staticmethod
@@ -163,7 +163,7 @@ def setup_ContextFull(
     _caller_accessor = None
     _function_accessor = None
 
-    def setup_Context(field: T) -> Context[T]:
+    def setup_Context(field: T_im) -> Context[T_im]:
         
         class _Interface(Context):
             __slots__ = ()
@@ -206,7 +206,7 @@ def setup_ContextFull(
                 return routine_message
         
             @property
-            def field(_) -> T:
+            def field(_) -> T_im:
                 return field
         
         return _Interface()
@@ -217,9 +217,9 @@ def setup_ContextFull(
     
     _field = None
     
-    class _Interface(ContextFull[T]):
+    class _Interface(ContextFull[T_im]):
         @staticmethod
-        def setup_context() -> Context[T]:
+        def setup_context() -> Context[T_im]:
             nonlocal _context
             if _context is not _NO_SETUP:
                 if isinstance(_context, Context):
@@ -229,7 +229,7 @@ def setup_ContextFull(
                 else:
                     raise RuntimeError("Internal error")
             
-            _context = setup_Context(cast(T, _field))
+            _context = setup_Context(cast(T_im, _field))
             return _context
         
         @staticmethod
@@ -246,7 +246,7 @@ def setup_ContextFull(
             _function_accessor = subroutine_full.get_raw_accessor()
         
         @staticmethod
-        def set_field(field: T) -> None:
+        def set_field(field: T_im) -> None:
             nonlocal _field
             _field = field
         

@@ -5,7 +5,7 @@ import inspect
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Callable, Generic, Optional, Protocol, Tuple, Type, TypeVar, cast, runtime_checkable
 
-from .context import T_in
+from .context import T
 
 if TYPE_CHECKING:
     from .context import Context
@@ -14,8 +14,8 @@ if TYPE_CHECKING:
 CAST = TypeVar("CAST")
 
 @runtime_checkable
-class Subroutine(Protocol, Generic[T_in]):
-    def __call__(self, context: Context[T_in]) -> Any:
+class Subroutine(Protocol, Generic[T]):
+    def __call__(self, context: Context[T]) -> Any:
         ...
 
 class SubroutineCaller(Protocol):
