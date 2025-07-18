@@ -46,7 +46,7 @@ class Message(Protocol):
 @runtime_checkable
 class MessageFull(Protocol):
     @staticmethod
-    def get_reader() -> Message:
+    def get_message(event_name: str) -> Message:
         ...
 
     @staticmethod
@@ -62,17 +62,11 @@ class MessageFull(Protocol):
         ...
     
     @staticmethod
-    def set_event_name(evnet_name: str) -> None:
-        ...
-    
-    @staticmethod
     def cleanup() -> None:
         ...
     
 
 def setup_MessageFull(log: log.Log) -> MessageFull:
-
-    _event_name: str = '<unset>'
 
     _environment: dict[str, Any] = {}
     _read_only_environment = MappingProxyType(_environment)
@@ -154,10 +148,8 @@ def setup_MessageFull(log: log.Log) -> MessageFull:
 
 
 
-    # Use closure to capture the current state for snapshots
-    def setup_Message() -> Message:
-        
-        _snapshot_event_name = _event_name
+    # Create a message bound to an event name
+    def setup_Message(event_name) -> Message:
 
         class _Interface(Message):
             __slots__ = ()
@@ -179,7 +171,7 @@ def setup_MessageFull(log: log.Log) -> MessageFull:
             
             @property
             def event(_) -> str:
-                return _snapshot_event_name
+                return event_name
     
         return _Interface()
     
@@ -188,8 +180,8 @@ def setup_MessageFull(log: log.Log) -> MessageFull:
     class _Interface(MessageFull):
         __slots__ = ()
         @staticmethod
-        def get_reader() -> Message:
-            return setup_Message()
+        def get_message(event_name: str) -> Message:
+            return setup_Message(event_name)
 
         @staticmethod
         def get_environment() -> Messenger:
@@ -202,11 +194,6 @@ def setup_MessageFull(log: log.Log) -> MessageFull:
         @staticmethod
         def get_routine_messenger() -> Messenger:
             return _routine_messenger_interface
-        
-        @staticmethod
-        def set_event_name(event_name: str) -> None:
-            nonlocal _event_name
-            _event_name = event_name
         
         @staticmethod
         def cleanup() -> None:
