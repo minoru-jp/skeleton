@@ -7,6 +7,25 @@ from .log import Log
 from .record import ProcessRecordReader, NO_RECORDED_SENTINEL
 
 
+def DEAULT_RESULT_HANDLER(result: ResultReader):
+    log = result.log
+    log.logger.info(
+        f"[{log.role}] loop result \n"
+        f"    outcome: {result.outcome}"
+        f"    return value: {result.return_value}\n"
+        f"    recorded last event process: {result.event.last_recorded_process}\n"
+        f"    recorded last event result: {result.event.last_recorded_result}\n"
+        f"    recorded last routine process: {result.routine.last_recorded_process}\n"
+        f"    recorded last routine result: {result.routine.last_recorded_result}\n"
+        f"    error: {result.error}\n"
+        )
+    
+    return False # rethrow if exception has raised
+
+
+class ResultHandler(Protocol):
+    def __call__(self, result: ResultReader) -> bool:
+        ...
 
 class ResultReader(Protocol):
     @property
@@ -55,7 +74,7 @@ class ResultFull(Protocol):
         ...
     
     @staticmethod
-    def set_error(e: Exception) -> None:
+    def set_error(e: BaseException) -> None:
         ...
     
     @staticmethod
@@ -96,7 +115,7 @@ def setup_ResultFull(log: Log) -> ResultFull:
             return _outcome
             
         @property
-        def error(_) -> Exception | None:
+        def error(_) -> BaseException | None:
             return _error
 
         @property
@@ -134,8 +153,9 @@ def setup_ResultFull(log: Log) -> ResultFull:
             _return_value = obj
         
         @staticmethod
-        def set_error(e: Exception) -> None:
-            nonlocal _error
+        def set_error(e: BaseException) -> None:
+            nonlocal _outcome, _error
+            _outcome = 'fail'
             _error = e
         
         @staticmethod
