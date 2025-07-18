@@ -5,7 +5,6 @@ from typing import Optional, Protocol, Type, runtime_checkable
 from .subroutine import SubroutineCaller
 
 
-@runtime_checkable
 class RunningObserver(Protocol):
     @property
     def RUNNING(_) -> object:
@@ -20,11 +19,14 @@ class RunningObserver(Protocol):
         ...
 
     @property
+    def STOP(_) -> object:
+        ...
+
+    @property
     def current_mode(self) -> object:
         ...
 
 
-@runtime_checkable
 class Pauser(RunningObserver, Protocol):
     
     @staticmethod
@@ -48,35 +50,56 @@ class Pauser(RunningObserver, Protocol):
         ...
 
 
-@runtime_checkable
-class PauserFull(Protocol):
+class DriverRequest(Protocol):
     @staticmethod
-    def get_routine_interface() -> Pauser:
+    def stop() -> None:
         ...
     
     @staticmethod
-    def get_observer_interface() -> RunningObserver:
+    def pause() -> None:
+        ...
+    
+    @staticmethod
+    def resume() -> None:
+        ...
+
+
+class ControlFull(Protocol):
+    @staticmethod
+    def get_request() -> DriverRequest:
         ...
 
     @staticmethod
-    def request_super_pause() -> None:
+    def get_pauser() -> Pauser:
         ...
     
     @staticmethod
-    def super_resume() -> None:
+    def get_observer() -> RunningObserver:
         ...
     
     @staticmethod
     def reset() -> None:
         ...
+    
+    @staticmethod
+    def stopped() -> None:
+        ...
+    
+    @staticmethod
+    def cleanup() -> None:
+        ...
 
-def setup_PauserFull() -> PauserFull:
+def setup_ControlFull() -> ControlFull:
     
     _RUNNING = object()
     _PAUSE = object()
     _SUPER_PAUSE = object()
+    _STOP = object()
 
     _mode: object = _RUNNING
+    
+    _stop = False
+
     _event: asyncio.Event = asyncio.Event()
     _event.set()
     _pause_requested: bool = False
@@ -98,6 +121,10 @@ def setup_PauserFull() -> PauserFull:
         @property
         def SUPER_PAUSE(_):
             return _SUPER_PAUSE
+        @property
+        def STOP(_):
+            return _STOP
+        
         @property
         def current_mode(_):
             return _mode
@@ -127,6 +154,7 @@ def setup_PauserFull() -> PauserFull:
                 else:
                     _mode = _PAUSE
                     if n: n()
+        
         @staticmethod
         async def consume_resumed_flag(s: Optional[SubroutineCaller] = None, n: Optional[SubroutineCaller] = None) -> None:
             nonlocal _resumed_flag, _super_resume_active
@@ -137,12 +165,14 @@ def setup_PauserFull() -> PauserFull:
                     if s: s()
                 else:
                     if n: n()
+        
         @staticmethod
         def request_pause(id: Optional[object] = None):
             nonlocal _pause_requested
             if id:
                 _pause_ids.add(id)
             _pause_requested = True
+        
         @staticmethod
         def resume(id: Optional[object] = None) -> bool:
             nonlocal _resumed_flag
@@ -152,32 +182,49 @@ def setup_PauserFull() -> PauserFull:
                 return False
             _resume()
             return True
+        
         @staticmethod
         async def wait_resume():
             await _event.wait()
     
     _routine_interface = _RoutineInterface()
 
-
-
-    class _Interface(PauserFull):
+    class _RequestInterface(DriverRequest):
         @staticmethod
-        def get_routine_interface() -> Pauser:
-            return _routine_interface
-    
-        @staticmethod
-        def get_observer_interface() -> RunningObserver:
-            return _observer_interface
+        def stop() -> None:
+            nonlocal _stop
+            _stop = True
         
         @staticmethod
-        def request_super_pause() -> None:
+        def pause() -> None:
             nonlocal _super_pause_active, _pause_requested
             _super_pause_active = True
             _pause_requested = True
+        
+        @staticmethod
+        def resume() -> None:
+            _resume()
+    
+    _request_interface = _RequestInterface()
+
+
+    class _Interface(ControlFull):
+        @staticmethod
+        def get_request() -> DriverRequest:
+            return _request_interface
 
         @staticmethod
-        def super_resume() -> None:
-            _resume()
+        def get_pauser() -> Pauser:
+            return _routine_interface
+    
+        @staticmethod
+        def get_observer() -> RunningObserver:
+            return _observer_interface
+        
+        @staticmethod
+        def stopped() -> None:
+            nonlocal _mode
+            _mode = _STOP
         
         @staticmethod
         def reset() -> None:
@@ -188,6 +235,10 @@ def setup_PauserFull() -> PauserFull:
             _resumed_flag = False
             _pause_ids.clear()
             _super_pause_active = False
+        
+        @staticmethod
+        def cleanup() -> None:
+            _pause_ids.clear()
     
     
     return _Interface()
