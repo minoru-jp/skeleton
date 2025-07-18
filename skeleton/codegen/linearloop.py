@@ -46,15 +46,15 @@ class LinearLoop(_prot.CodeTemplate):
         do = while_
         if use_pauser:
             while_.add(f"await pauser.consume_on_pause_requested(s = {spa}, n = {pa})")
-            while_.blank()
+            while_.add_blank()
             if_ = while_.add_block(_block.Block("if pauser.current_mode is pauser.RUNNING:"))
             do = if_
         for name, sub in subs.items():
             do.add(_util.get_call(name, sub))
-        do.blank()
+        do.add_blank()
         if use_pauser:
             while_.add(f"await pauser.consume_resumed_flag(s = {sra}, n = {ra})")
-            while_.blank()
+            while_.add_blank()
             if_ = while_.add_block(_block.Block("if pauser.current_mode is not pauser.RUNNING:"))
             if_.add("await pauser.wait_resume()")
         

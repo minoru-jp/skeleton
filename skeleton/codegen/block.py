@@ -136,7 +136,7 @@ class Block:
         else:
             raise TypeError(f"Invalid type '{type(part)}'")
     
-    def blank(self) -> None:
+    def add_blank(self) -> None:
         self._body.append(BLANK)
     
     def set_tail(self, tail: str | MutableSequence[str]) -> Block:

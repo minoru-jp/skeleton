@@ -47,6 +47,6 @@ def render_accessor_protocols(buffer: MutableSequence[str], subs: Mapping[str, _
 def add_accessor_cast_process(parent_block: _block.Block):
     parent_block.add(f"caller = context.caller({CALLER})")
     parent_block.add(f"function = context.function({FUNCTION})")
-    parent_block.blank()
+    parent_block.add_blank()
 
 
