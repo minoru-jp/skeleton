@@ -36,9 +36,17 @@ class UsageState(Protocol):
 
 
 def setup_UsageState() -> UsageState:
-    _LOAD = object()
-    _ACTIVE = object()
-    _TERMINATED = object()
+
+    class _State:
+        def __init__(self, name: str):
+            self.name = name
+
+        def __repr__(self) -> str:
+            return self.name
+
+    _LOAD = _State('LOAD')
+    _ACTIVE = _State('ACTIVE')
+    _TERMINATED = _State('TERMINATED')
 
     _ALL = (_LOAD, _ACTIVE, _TERMINATED)
     
@@ -162,10 +170,10 @@ def setup_UsageStateFull() -> UsageStateFull:
             if fn:
                 result = iface.maintain_state(
                     _current, fn, *fn_args, **fn_kwargs)
-                _current = to
-                return result
             else:
-                return None
+                result = None
+            _current = to
+            return result
             
         @staticmethod
         def transit_state(to):
