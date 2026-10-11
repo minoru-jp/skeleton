@@ -31,8 +31,8 @@ from typing import cast
 
 ROOT = Path(__file__).resolve().parent.parent
 CANONICAL = ROOT / "devdocs" / "canonical_documents"
-REPOSITORY = "https://github.com/minoru-jp/skeleton/blob/main/"
-TREE = "https://github.com/minoru-jp/skeleton/tree/main/"
+REPOSITORY = "https://github.com/minoru-jp/honehone/blob/main/"
+TREE = "https://github.com/minoru-jp/honehone/tree/main/"
 
 # Where each canonical document lives (relative to CANONICAL) and its published document (relative to ROOT).
 PLACES: tuple[tuple[str, str], ...] = (

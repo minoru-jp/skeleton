@@ -1,4 +1,4 @@
-<!-- Published from devdocs/canonical_documents/README.md sha256:214a60f73cc7f96f8d7dc6f8894b443e0b058b158f56bfc7ee104314cbf7941a. Translated from the Japanese canonical document; edit the canonical source instead of this file. -->
+<!-- Published from devdocs/canonical_documents/README.md sha256:7d9b25f7511d17c5fc60c2ed44d909e0cdab8ae7ec7a9f82c79be1c2a56bc713. Translated from the Japanese canonical document; edit the canonical source instead of this file. -->
 # honehone
 
 `honehone` is a library for writing **classes with work of a fixed shape**.
@@ -245,16 +245,16 @@ The choice between them is about **when the structure is decided**. Something wh
 
 ## Examples
 
-[`examples/`](https://github.com/minoru-jp/skeleton/tree/main/examples) holds examples that each show one property particular to `honehone`. All of them run with the standard library only, and can be run with `python examples/<name>.py`.
+[`examples/`](https://github.com/minoru-jp/honehone/tree/main/examples) holds examples that each show one property particular to `honehone`. All of them run with the standard library only, and can be run with `python examples/<name>.py`.
 
-- [`cooking.py`](https://github.com/minoru-jp/skeleton/blob/main/examples/cooking.py): **Reusing a shape, and pausing.** It writes one recipe shape (advance a pasta pot and a sauce pot in parallel, then plate), and carbonara and arrabbiata fill in only its content. Since the work calls `ctx.checkpoint()` along the way, no pot advances while you are away from the kitchen after `pause()`, and they continue from where they were after `resume()`. The listener of reports is the cooking display as it is.
-- [`instrument.py`](https://github.com/minoru-jp/skeleton/blob/main/examples/instrument.py): **Services and the order of cleanup.** It connects to a device, measures while a service watches the temperature, records to sqlite from a `@pinned` worker, and finally disconnects. Whether it ends normally, fails by overheating, or is stopped with Ctrl+C, the order is kept: close the recording, stop the watching, then disconnect. Implementation classes decide only which device to use.
-- [`console.py`](https://github.com/minoru-jp/skeleton/blob/main/examples/console.py): **A CLI as a control panel.** It operates work running in the background (a simulated backup) with `status` / `pause` / `resume` / `quit`. The decision to stop on Ctrl+C belongs to the managing side (the main thread that called `honehone.run()`), and the input is read by an `@isolated` worker on another thread. Even when it is going to stop in the middle of input, the half-typed line is not erased, and it stops where Enter returns. The commands only call the handle from `honehone.control(self)`.
+- [`cooking.py`](https://github.com/minoru-jp/honehone/blob/main/examples/cooking.py): **Reusing a shape, and pausing.** It writes one recipe shape (advance a pasta pot and a sauce pot in parallel, then plate), and carbonara and arrabbiata fill in only its content. Since the work calls `ctx.checkpoint()` along the way, no pot advances while you are away from the kitchen after `pause()`, and they continue from where they were after `resume()`. The listener of reports is the cooking display as it is.
+- [`instrument.py`](https://github.com/minoru-jp/honehone/blob/main/examples/instrument.py): **Services and the order of cleanup.** It connects to a device, measures while a service watches the temperature, records to sqlite from a `@pinned` worker, and finally disconnects. Whether it ends normally, fails by overheating, or is stopped with Ctrl+C, the order is kept: close the recording, stop the watching, then disconnect. Implementation classes decide only which device to use.
+- [`console.py`](https://github.com/minoru-jp/honehone/blob/main/examples/console.py): **A CLI as a control panel.** It operates work running in the background (a simulated backup) with `status` / `pause` / `resume` / `quit`. The decision to stop on Ctrl+C belongs to the managing side (the main thread that called `honehone.run()`), and the input is read by an `@isolated` worker on another thread. Even when it is going to stop in the middle of input, the half-typed line is not erased, and it stops where Enter returns. The commands only call the handle from `honehone.control(self)`.
 
 ## Installation
 
 ```bash
-pip install "git+https://github.com/minoru-jp/skeleton"
+pip install honehone
 ```
 
 [gpframe](https://github.com/minoru-jp/gpframe) and [fport](https://github.com/minoru-jp/fport) are installed as dependencies.
@@ -273,6 +273,6 @@ Rules of behavior are written in the canonical sources (in Japanese) in `devdocs
 
 ## Related documents
 
-- [STATUS.md](https://github.com/minoru-jp/skeleton/blob/main/STATUS.md): development stage, scope, what is decided, and future direction
-- [docs/specification/INDEX.md](https://github.com/minoru-jp/skeleton/blob/main/docs/specification/INDEX.md): rules of behavior (Specification)
-- [CHANGELOG.md](https://github.com/minoru-jp/skeleton/blob/main/CHANGELOG.md): changes in each version
+- [STATUS.md](https://github.com/minoru-jp/honehone/blob/main/STATUS.md): development stage, scope, what is decided, and future direction
+- [docs/specification/INDEX.md](https://github.com/minoru-jp/honehone/blob/main/docs/specification/INDEX.md): rules of behavior (Specification)
+- [CHANGELOG.md](https://github.com/minoru-jp/honehone/blob/main/CHANGELOG.md): changes in each version

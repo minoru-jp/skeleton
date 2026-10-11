@@ -1,7 +1,18 @@
-<!-- Published from devdocs/canonical_documents/CHANGELOG.md sha256:2dd9c991d1679ac8f0f4c84e7b6564f80cd15a4f16d66697da3415ddb16c4966. Translated from the Japanese canonical document; edit the canonical source instead of this file. -->
+<!-- Published from devdocs/canonical_documents/CHANGELOG.md sha256:ec5f57fed2593b7053c2e344b2a65d8990efdf85eae276ef258cc40a2ffe74f1. Translated from the Japanese canonical document; edit the canonical source instead of this file. -->
 # honehone Changelog
 
 Records the changes in each version of `honehone`. The version before `2.0.0` (`1.0.0`) is the old implementation from before the rebuild, then named `skeleton`, and its history is not included in this document.
+
+## V2_0_1
+
+This version fixes only the public-facing parts; the behavior of the library is unchanged from `2.0.0`.
+
+version: 2.0.1
+
+Changed:
+
+- Changed the installation instructions in the README from installing from GitHub with `pip install "git+https://github.com/minoru-jp/skeleton"` to installing from PyPI with `pip install honehone`.
+- Renamed the GitHub repository from `skeleton` to `honehone`, and pointed the links in the documents and `pyproject.toml` to the new repository. The distribution name, the import name and the repository name now match.
 
 ## V2_0_0
 

@@ -1,4 +1,4 @@
-<!-- Published from devdocs/canonical_documents/STATUS.md sha256:477e5bb90f33b610266fa5adf52c708947e16910e32c0227e9ad4bc8d93e45c3. Translated from the Japanese canonical document; edit the canonical source instead of this file. -->
+<!-- Published from devdocs/canonical_documents/STATUS.md sha256:738ce813656e5b3fc459f6d400078cc85e5cf645c473c4a92fb9fe1f459dd0bc. Translated from the Japanese canonical document; edit the canonical source instead of this file. -->
 # honehone Project Status
 
 This document describes the current state of `honehone` and its future direction as seen from now.
@@ -6,7 +6,7 @@ Changes that actually happened in the past belong to the CHANGELOG.
 
 ## STATUS_001
 
-The current development stage is Alpha. The current version is `2.0.0`, the first version rebuilt from the design. It is not compatible with the old implementation `1.0.0`.
+The current development stage is Alpha. The current version is `2.0.1`. It was rebuilt from the design in `2.0.0`, and it is not compatible with the old implementation `1.0.0`.
 
 title: Development stage
 
@@ -79,7 +79,7 @@ title: Examples
 
 ## STATUS_007
 
-The distribution name and the import name are `honehone` (骨々, "bones"). The GitHub repository keeps the name `skeleton`, inherited from the old implementation.
+The distribution name, the import name and the GitHub repository name are all `honehone` (骨々, "bones"). The repository started under the name `skeleton` and was renamed to `honehone` in `2.0.1`. The history of the old implementation is also kept in the same repository.
 
 The old name `skeleton` cannot be used as the distribution name, because another project already uses it on PyPI. PyPI also refuses, as "too similar", a name that matches an existing project after removing `.` `_` `-` and replacing `l` and `i` with `1` and `o` with `0`. The import name was made the same as the distribution name because `skeleton` is a common name that easily collides with the import names of other packages. The name of the base class `Skeleton`, and calling it a "skeleton" in the documents, are kept as words for the idea behind this mechanism.
 
@@ -94,7 +94,7 @@ GitHub Actions consists of two workflows.
 - `ci.yml`: on every push and pull request, runs `python tools/check.py` on Python 3.11, 3.12 and 3.13
 - `release.yml`: when a Release is published on GitHub, it first calls `ci.yml` as it is and passes the same checks. It then builds and checks the distributions with `python tools/check.py dist --tag <tag>` (also confirming that the tag matches `v<version>`), and publishes them with PyPI Trusted Publishing. No API token is used
 
-For Trusted Publishing, this repository (`minoru-jp/skeleton`), the workflow `release.yml` and the environment `pypi` must be registered on PyPI as a Trusted Publisher of the project `honehone`.
+For Trusted Publishing, this repository (`minoru-jp/honehone`), the workflow `release.yml` and the environment `pypi` must be registered on PyPI as a Trusted Publisher of the project `honehone`.
 
 title: Checks, CI and release
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "honehone"
-version = "2.0.0"
+version = "2.0.1"
 description = "Write classes with a declared shape of concurrent work, and fill in only the parts you change."
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.11"
@@ -35,9 +35,9 @@ dist = ["build==1.6.1", "twine==7.0.0"]
 dev = ["honehone[test,lint,typecheck,docs,dist]"]
 
 [project.urls]
-Homepage = "https://github.com/minoru-jp/skeleton"
-Source = "https://github.com/minoru-jp/skeleton"
-Issues = "https://github.com/minoru-jp/skeleton/issues"
+Homepage = "https://github.com/minoru-jp/honehone"
+Source = "https://github.com/minoru-jp/honehone"
+Issues = "https://github.com/minoru-jp/honehone/issues"
 
 [tool.setuptools]
 package-dir = { "" = "src" }

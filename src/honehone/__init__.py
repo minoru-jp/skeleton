@@ -52,7 +52,7 @@ from honehone._errors import (
 )
 from honehone._result import NodeRecord, NodeState, Outcome, Result
 
-__version__ = "2.0.0"
+__version__ = "2.0.1"
 
 __all__ = (
     "Channel",

@@ -17,6 +17,17 @@ Canonical source は `devdocs/canonical_sources/changelog/canonical.py` です�
 
 `honehone` の版ごとの変更を記録する。`2.0.0` より前の版(`1.0.0`)は `skeleton` という名前だった作り直す前の旧実装で、その履歴はこの文書に含めない。
 
+## V2_0_1
+
+公開面だけを直した版で、ライブラリの振る舞いは `2.0.0` から変わらない。
+
+version: 2.0.1
+
+Changed:
+
+- README のインストール手順を、GitHub から入れる `pip install "git+https://github.com/minoru-jp/skeleton"` から、PyPI から入れる `pip install honehone` に変更した。
+- GitHub のリポジトリ名を `skeleton` から `honehone` に変更し、文書と `pyproject.toml` のリンクを新しいリポジトリに向けた。これで配布名、import 名、リポジトリ名がそろった。
+
 ## V2_0_0
 
 **設計から作り直した版で、`1.0.0` との後方互換性はまったくない。** `1.0.0` の API は何も残っておらず、移行の手段も用意しない。

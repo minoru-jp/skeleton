@@ -18,7 +18,7 @@ class PROJECT_STATUS:
     """
 
     class STATUS_001:
-        r"""現在の開発段階は Alpha。現在のバージョンは `{{project.version}}` で、設計から作り直した最初の版である。旧実装 `1.0.0` とは互換性がない。"""
+        r"""現在の開発段階は Alpha。現在のバージョンは `{{project.version}}` である。`2.0.0` で設計から作り直しており、旧実装 `1.0.0` とは互換性がない。"""
 
         title @= "Development stage"
 
@@ -96,7 +96,7 @@ class PROJECT_STATUS:
 
     class STATUS_007:
         r"""
-        配布名と import 名は `{{project.name}}`(骨々)である。GitHub のリポジトリ名は、旧実装の名前を受け継いで `skeleton` のままとする。
+        配布名、import 名、GitHub のリポジトリ名は、すべて `{{project.name}}`(骨々)である。リポジトリは `skeleton` という名前で始まり、`2.0.1` で `{{project.name}}` に改めた。旧実装の履歴も同じリポジトリに残している。
 
         旧実装の名前 `skeleton` は、PyPI で別のプロジェクトがすでに使っているため、配布名には使えない。PyPI は、`.` `_` `-` を除き、`l` と `i` を `1` に、`o` を `0` に置き換えた名前が既存のプロジェクトと一致する名前も「似すぎた名前」として拒む。import 名を配布名にそろえたのは、`skeleton` が一般的な名前で、ほかのパッケージの import 名とぶつかりやすいためである。基底クラスの名前 `Skeleton` と、文書の中の「スケルトン」という呼び方は、この仕組みの考え方を表す言葉として残している。
         """
@@ -112,7 +112,7 @@ class PROJECT_STATUS:
         - `ci.yml`: プッシュとプルリクエストのたびに、Python 3.11、3.12、3.13 で `python tools/check.py` を走らせる
         - `release.yml`: GitHub で Release を公開すると、まず `ci.yml` をそのまま呼んで同じ検査を通す。続いて `python tools/check.py dist --tag <タグ>` で配布物を作って確かめ(タグが `v<version>` と一致することも確かめる)、PyPI の Trusted Publishing で公開する。API トークンは使わない
 
-        Trusted Publishing には、PyPI 側で、このリポジトリ(`minoru-jp/skeleton`)、ワークフロー `release.yml`、環境 `pypi` を、プロジェクト `honehone` の Trusted Publisher として登録しておく必要がある。
+        Trusted Publishing には、PyPI 側で、このリポジトリ(`minoru-jp/honehone`)、ワークフロー `release.yml`、環境 `pypi` を、プロジェクト `honehone` の Trusted Publisher として登録しておく必要がある。
         """
 
         title @= "Checks, CI and release"

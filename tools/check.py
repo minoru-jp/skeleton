@@ -4,7 +4,7 @@ Run at the root of the repository.
 
     python tools/check.py               # every check
     python tools/check.py lint tests    # only the chosen checks
-    python tools/check.py dist --tag v2.0.0 --dist-dir dist
+    python tools/check.py dist --tag v2.0.1 --dist-dir dist
                                         # build and check the distributions, keep them
                                         # in dist/ (for releases)
 

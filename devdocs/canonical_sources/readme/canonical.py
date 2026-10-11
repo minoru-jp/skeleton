@@ -309,11 +309,11 @@ class SECTION_001:
 
     class SECTION_015:
         r"""
-        [`examples/`](https://github.com/minoru-jp/skeleton/tree/main/examples) には、`{{project.name}}` ならではの性質を一つずつ見せる例を置いています。どれも標準ライブラリだけで動き、`python examples/<名前>.py` で実行できます。
+        [`examples/`](https://github.com/minoru-jp/honehone/tree/main/examples) には、`{{project.name}}` ならではの性質を一つずつ見せる例を置いています。どれも標準ライブラリだけで動き、`python examples/<名前>.py` で実行できます。
 
-        - [`cooking.py`](https://github.com/minoru-jp/skeleton/blob/main/examples/cooking.py): **形の使い回しと一時停止。** 麺の鍋とソースの鍋を並行に進めて盛り付ける、というレシピの形を一つ書き、カルボナーラとアラビアータがその中身だけを埋めます。作業の途中で `ctx.checkpoint()` を呼ぶので、`pause()` で台所を離れている間はどの鍋も進まず、`resume()` で続きから進みます。報告の受け手が、そのまま調理の表示になります。
-        - [`instrument.py`](https://github.com/minoru-jp/skeleton/blob/main/examples/instrument.py): **service と後始末の順序。** 装置に接続し、温度を見張る service を動かしながら計測し、`@pinned` のワーカーが sqlite に記録して、最後に切断します。正常に終わっても、過熱で失敗しても、Ctrl+C で止めても、記録を締め、見張りを止めてから切断する、という順番が守られます。どの装置を使うかだけを実装クラスが決めます。
-        - [`console.py`](https://github.com/minoru-jp/skeleton/blob/main/examples/console.py): **操作盤としての CLI。** 裏で動く仕事(バックアップの模擬)を、`status` / `pause` / `resume` / `quit` で操作します。Ctrl+C を受けて止める判断は管理役(`honehone.run()` を呼んだメインスレッド)が持ち、入力は `@isolated` のワーカーが別スレッドで読みます。入力の途中で止まることになっても、打ちかけの行は消さず、Enter で戻ったところで止まります。コマンドは `honehone.control(self)` の操作盤を呼ぶだけです。
+        - [`cooking.py`](https://github.com/minoru-jp/honehone/blob/main/examples/cooking.py): **形の使い回しと一時停止。** 麺の鍋とソースの鍋を並行に進めて盛り付ける、というレシピの形を一つ書き、カルボナーラとアラビアータがその中身だけを埋めます。作業の途中で `ctx.checkpoint()` を呼ぶので、`pause()` で台所を離れている間はどの鍋も進まず、`resume()` で続きから進みます。報告の受け手が、そのまま調理の表示になります。
+        - [`instrument.py`](https://github.com/minoru-jp/honehone/blob/main/examples/instrument.py): **service と後始末の順序。** 装置に接続し、温度を見張る service を動かしながら計測し、`@pinned` のワーカーが sqlite に記録して、最後に切断します。正常に終わっても、過熱で失敗しても、Ctrl+C で止めても、記録を締め、見張りを止めてから切断する、という順番が守られます。どの装置を使うかだけを実装クラスが決めます。
+        - [`console.py`](https://github.com/minoru-jp/honehone/blob/main/examples/console.py): **操作盤としての CLI。** 裏で動く仕事(バックアップの模擬)を、`status` / `pause` / `resume` / `quit` で操作します。Ctrl+C を受けて止める判断は管理役(`honehone.run()` を呼んだメインスレッド)が持ち、入力は `@isolated` のワーカーが別スレッドで読みます。入力の途中で止まることになっても、打ちかけの行は消さず、Enter で戻ったところで止まります。コマンドは `honehone.control(self)` の操作盤を呼ぶだけです。
         """
 
         title @= "例"
@@ -321,7 +321,7 @@ class SECTION_001:
     class SECTION_013:
         r"""
         ```bash
-        pip install "git+https://github.com/minoru-jp/skeleton"
+        pip install honehone
         ```
 
         依存パッケージとして [gpframe](https://github.com/minoru-jp/gpframe) と [fport](https://github.com/minoru-jp/fport) が入ります。
@@ -346,9 +346,9 @@ class SECTION_001:
 
     class SECTION_014:
         r"""
-        - [STATUS.md](https://github.com/minoru-jp/skeleton/blob/main/STATUS.md): 開発段階、範囲、決まっていること、今後の方向
-        - [docs/specification/INDEX.md](https://github.com/minoru-jp/skeleton/blob/main/docs/specification/INDEX.md): 振る舞いの規則(Specification)
-        - [CHANGELOG.md](https://github.com/minoru-jp/skeleton/blob/main/CHANGELOG.md): 版ごとの変更
+        - [STATUS.md](https://github.com/minoru-jp/honehone/blob/main/STATUS.md): 開発段階、範囲、決まっていること、今後の方向
+        - [docs/specification/INDEX.md](https://github.com/minoru-jp/honehone/blob/main/docs/specification/INDEX.md): 振る舞いの規則(Specification)
+        - [CHANGELOG.md](https://github.com/minoru-jp/honehone/blob/main/CHANGELOG.md): 版ごとの変更
         """
 
         title @= "関連文書"

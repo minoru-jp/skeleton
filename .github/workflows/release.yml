@@ -1,6 +1,6 @@
 # When a Release is published on GitHub, passes the same checks as CI and publishes to PyPI.
 # Publishing uses Trusted Publishing (OIDC), so no API token is used.
-# On PyPI, this repository (minoru-jp/skeleton), this workflow (release.yml) and the
+# On PyPI, this repository (minoru-jp/honehone), this workflow (release.yml) and the
 # environment "pypi" must be registered as a Trusted Publisher of the project honehone.
 name: Release
 
