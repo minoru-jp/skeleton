@@ -1,0 +1,13 @@
+{
+  "include": [
+    ".",
+    "../devdocs",
+    "../examples"
+  ],
+  "extraPaths": [
+    ".."
+  ],
+  "pythonVersion": "3.11",
+  "typeCheckingMode": "standard",
+  "reportUnnecessaryTypeIgnoreComment": "warning"
+}

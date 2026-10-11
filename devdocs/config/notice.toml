@@ -1,0 +1,15 @@
+[notice]
+content = """
+この文書は `shikumi-devdoc` によって生成された canonical document です。
+Canonical source は `{canonical_source}` です。
+直接編集しないでください。
+
+公開文書作成方針
+
+- `devdocs/canonical_documents/` にある日本語 canonical document を公開工程の入力とする。
+- 翻訳では意味、構造、情報量を維持し、内容を勝手に追加・削除・要約しない。
+- canonical document に `shikumi-devdoc:translation-metadata` が含まれる場合は、その `preserve_spelling` 指定の用語の表記を変更しない。
+- コード、Python 識別子、コマンド、ファイルパス、URL は、翻訳上の必要がない限り変更しない。
+- このコメントブロックは published document には含めない。
+- published document は canonical document から派生する公開成果物として扱い、内容の変更が必要な場合は canonical source または realization context へ戻して canonical document を再生成する。
+"""

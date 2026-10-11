@@ -53,3 +53,8 @@ target/
 .ipynb_checkpoints
 # mypy
 .mypy_cache/
+# Local development
+.venv/
+.ruff_cache/
+.pytest_cache/
+*.egg-info/

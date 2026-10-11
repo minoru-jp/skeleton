@@ -1,0 +1,51 @@
+# When a Release is published on GitHub, passes the same checks as CI and publishes to PyPI.
+# Publishing uses Trusted Publishing (OIDC), so no API token is used.
+# On PyPI, this repository (minoru-jp/skeleton), this workflow (release.yml) and the
+# environment "pypi" must be registered as a Trusted Publisher of the project honehone.
+name: Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    # Exactly the same checks as CI on push.
+    uses: ./.github/workflows/ci.yml
+
+  build:
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install the project and the checking tools
+        run: python -m pip install -e ".[dev]"
+      - name: Build and check the distributions
+        # The same dist check as CI, plus the tag matching the version; keeps the checked files in dist/.
+        run: python tools/check.py dist --tag "${{ github.event.release.tag_name }}" --dist-dir dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/honehone/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

@@ -1,0 +1,72 @@
+[build-system]
+requires = ["setuptools>=70", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "honehone"
+version = "2.0.0"
+description = "Write classes with a declared shape of concurrent work, and fill in only the parts you change."
+readme = { file = "README.md", content-type = "text/markdown" }
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "minoru-jp" }]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "License :: OSI Approved :: MIT License",
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
+keywords = ["skeleton", "workflow", "concurrency", "threads", "template-method"]
+# gpframe provides the base for running, and fport the sending point for reports (STATUS_002).
+dependencies = ["gpframe>=0.1.0", "fport>=2.0.0"]
+
+[project.optional-dependencies]
+# Tools used for checking.
+test = ["pytest>=8.0"]
+lint = ["ruff==0.16.10"]
+typecheck = ["basedpyright==1.40.2"]
+docs = ["shikumi-devdoc==0.3.5"]
+dist = ["build==1.6.1", "twine==7.0.0"]
+dev = ["honehone[test,lint,typecheck,docs,dist]"]
+
+[project.urls]
+Homepage = "https://github.com/minoru-jp/skeleton"
+Source = "https://github.com/minoru-jp/skeleton"
+Issues = "https://github.com/minoru-jp/skeleton/issues"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["honehone*"]
+
+[tool.setuptools.package-data]
+honehone = ["py.typed"]
+
+[tool.ruff]
+target-version = "py311"
+# Canonical documents are generated from the canonical sources, so they are not formatted.
+extend-exclude = ["devdocs/canonical_documents"]
+
+[tool.basedpyright]
+# The package and the tools are checked with stricter settings.
+# Tests, examples and the canonical sources of the documents are checked as user code by tests/pyrightconfig.json.
+include = ["src", "scripts", "tools"]
+pythonVersion = "3.11"
+typeCheckingMode = "recommended"
+# typing.override exists from 3.12; no dependency on typing_extensions just for 3.11.
+reportImplicitOverride = "none"
+# Runtime state is shared among modules of the same package; a leading _ marks the boundary toward outside the package.
+reportPrivateUsage = "none"
+reportUnnecessaryTypeIgnoreComment = "warning"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+filterwarnings = ["error"]
